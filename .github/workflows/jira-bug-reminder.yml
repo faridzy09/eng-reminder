@@ -35,7 +35,7 @@ jobs:
           JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           JIRA_MAX_RESULTS: ${{ vars.JIRA_MAX_RESULTS || '10' }}
-          JIRA_NEW_BUG_WINDOW_MINUTES: ${{ vars.JIRA_NEW_BUG_WINDOW_MINUTES || '15' }}
+          JIRA_NEW_BUG_WINDOW_MINUTES: ${{ vars.JIRA_NEW_BUG_WINDOW_MINUTES || '1' }}
           BUG_HANGING_MINUTES: ${{ vars.BUG_HANGING_MINUTES || '10' }}
           CODE_REVIEW_HANGING_MINUTES: ${{ vars.CODE_REVIEW_HANGING_MINUTES || '10' }}
 
