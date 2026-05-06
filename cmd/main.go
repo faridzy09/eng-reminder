@@ -2,13 +2,15 @@ package main
 
 import (
 	"log"
-	"os"
 	"strings"
+	"time"
 
 	"github.com/lionparcel/eng-reminder/internal/config"
 	"github.com/lionparcel/eng-reminder/internal/jira"
 	"github.com/lionparcel/eng-reminder/internal/notifier"
 )
+
+const tickInterval = 5 * time.Minute
 
 func main() {
 	cfg := config.Load()
@@ -19,8 +21,22 @@ func main() {
 
 	jiraClient := jira.NewClient(cfg.JiraBaseURL, cfg.JiraEmail, cfg.JiraAPIToken)
 	discord := notifier.NewDiscord(cfg.DiscordWebhookURL)
-
 	mentionIDs := parseMentions(cfg.DiscordLeadIDs)
+
+	// Jalankan langsung saat pertama kali start
+	run(jiraClient, discord, mentionIDs, cfg)
+
+	// Kemudian ulangi setiap 10 menit
+	ticker := time.NewTicker(tickInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		run(jiraClient, discord, mentionIDs, cfg)
+	}
+}
+
+func run(jiraClient *jira.Client, discord *notifier.Discord, mentionIDs []string, cfg *config.Config) {
+	log.Printf("[eng-reminder] ── run started at %s ──", time.Now().Format("2006-01-02 15:04:05"))
 
 	// ── 1. New bug alert: semua bug baru dengan status To Do ─────────────
 	log.Println("[eng-reminder] checking for new bugs in To Do...")
@@ -70,24 +86,20 @@ func main() {
 	log.Println("[eng-reminder] checking Jira for latest bug issues...")
 	bugs, err := jiraClient.GetLatestBugs(cfg.JiraMaxResults, cfg.JiraNewBugWindowMinutes)
 	if err != nil {
-		log.Fatalf("[eng-reminder] failed to fetch Jira bugs: %v", err)
-	}
-
-	if len(bugs) == 0 {
+		log.Printf("[eng-reminder] failed to fetch Jira bugs: %v", err)
+	} else if len(bugs) == 0 {
 		log.Println("[eng-reminder] no open bug issues found, skipping reminder")
-		os.Exit(0)
+	} else {
+		log.Printf("[eng-reminder] found %d bug issue(s), sending reminder...", len(bugs))
+		if err := discord.SendBugReminder(bugs, mentionIDs, cfg.JiraBaseURL); err != nil {
+			log.Printf("[eng-reminder] failed to send bug reminder: %v", err)
+		}
 	}
 
-	log.Printf("[eng-reminder] found %d bug issue(s), sending reminder...", len(bugs))
-	if err := discord.SendBugReminder(bugs, mentionIDs, cfg.JiraBaseURL); err != nil {
-		log.Fatalf("[eng-reminder] failed to send Slack notification: %v", err)
-	}
-
-	log.Printf("[eng-reminder] all notifications sent successfully")
-	os.Exit(0)
+	log.Println("[eng-reminder] ── run completed ──")
 }
 
-// parseMentions splits a comma-separated string of Slack user IDs.
+// parseMentions splits a comma-separated string of Discord user IDs.
 func parseMentions(raw string) []string {
 	if raw == "" {
 		return nil

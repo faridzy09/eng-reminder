@@ -2,15 +2,17 @@ name: 🐛 Jira Bug Reminder
 
 on:
   schedule:
-    # Runs every 15 minutes
-    - cron: "*/10 * * * *"
-  workflow_dispatch: # allow manual trigger for testing
+    # Restart every 6 hours — interval 10 menit dihandle di dalam code
+    - cron: "0 */6 * * *"
+  push:
+    branches: [main, master]     # auto-start saat deploy
+  workflow_dispatch:             # manual trigger
 
 jobs:
   bug-reminder:
     name: Check Jira Bugs & Notify
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 360         # max GitHub Actions (6 jam)
 
     steps:
       - name: Checkout repository
