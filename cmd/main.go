@@ -10,7 +10,7 @@ import (
 	"github.com/lionparcel/eng-reminder/internal/notifier"
 )
 
-const tickInterval = 5 * time.Minute
+const tickInterval = 15 * time.Minute
 
 func main() {
 	cfg := config.Load()
