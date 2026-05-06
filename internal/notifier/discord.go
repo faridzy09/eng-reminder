@@ -296,7 +296,7 @@ func (d *Discord) SendBugReminder(bugs []jira.Issue, mentionIDs []string, jiraBa
 		Color:       colorBlue,
 		Description: fmt.Sprintf("Terdapat **%d** bug yang masih open dan belum diselesaikan.", len(bugs)),
 		Fields:      fields,
-		Footer:      &discordEmbedFooter{Text: "Jira Bug Monitor • Open Bug Reminder"},
+		Footer:      &discordEmbedFooter{Text: "Eng Ngebug • Open Bug Reminder"},
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
 	return d.send(discordPayload{
@@ -344,7 +344,7 @@ func (d *Discord) SendNewBugAlert(bugs []jira.Issue, mentionIDs []string, jiraBa
 		Color:       colorOrange,
 		Description: fmt.Sprintf("**%d** bug baru dengan status **To Do** ditemukan — mohon segera ditindaklanjuti!", len(bugs)),
 		Fields:      fields,
-		Footer:      &discordEmbedFooter{Text: "Jira Bug Monitor • New Bug Alert"},
+		Footer:      &discordEmbedFooter{Text: "Eng Ngebug • New Bug Alert"},
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
 	return d.send(discordPayload{
@@ -361,8 +361,6 @@ func (d *Discord) SendHangingBugAlert(bugs []jira.Issue, severity string, stuckM
 	const threshLow, threshMid, threshHigh = 6, 10, 15
 
 	// Triggered By = bug paling baru (list sorted ASC, ambil terakhir)
-	triggeredBy := bugs[len(bugs)-1]
-
 	fields := []discordEmbedField{
 		{
 			Name:  "📌 Epic",
@@ -384,11 +382,11 @@ func (d *Discord) SendHangingBugAlert(bugs []jira.Issue, severity string, stuckM
 		},
 		{
 			Name:  "🎯 Triggered By",
-			Value: fmt.Sprintf("[%s] %s\n%s", triggeredBy.Key, truncate(triggeredBy.Summary, 200), triggeredBy.URL),
+			Value: "Reminder Hanging Bug",
 		},
 		{
-			Name:  "📋 Status yang Dihitung",
-			Value: "`Todo` | `In Progress` | `Code Review` | `Rejected` | `Reject`",
+			Name:  "📋 Status yang Dicek",
+			Value: "`Todo` yang terlalu lama tidak berpindah ke status lain",
 		},
 	}
 
@@ -397,7 +395,7 @@ func (d *Discord) SendHangingBugAlert(bugs []jira.Issue, severity string, stuckM
 		Color:       severityColor(severity),
 		Description: fmt.Sprintf("Bug dalam fase development telah mencapai batas **%s** %s", severity, sEmoji),
 		Fields:      fields,
-		Footer:      &discordEmbedFooter{Text: "Jira Bug Monitor • Development Phase Alert"},
+		Footer:      &discordEmbedFooter{Text: "Eng Ngebug • Development Phase Alert"},
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
 	return d.send(discordPayload{
@@ -414,7 +412,6 @@ func (d *Discord) SendHangingCodeReviewAlert(bugs []jira.Issue, severity string,
 	const threshLow, threshMid, threshHigh = 6, 10, 15
 
 	// Triggered By = bug paling baru (list sorted ASC, ambil terakhir)
-	triggeredBy := bugs[len(bugs)-1]
 
 	fields := []discordEmbedField{
 		{
@@ -437,11 +434,11 @@ func (d *Discord) SendHangingCodeReviewAlert(bugs []jira.Issue, severity string,
 		},
 		{
 			Name:  "🎯 Triggered By",
-			Value: fmt.Sprintf("[%s] %s\n%s", triggeredBy.Key, truncate(triggeredBy.Summary, 200), triggeredBy.URL),
+			Value: "Code Review Monitoring",
 		},
 		{
-			Name:  "📋 Status yang Dihitung",
-			Value: "`Code Review`",
+			Name:  "📋 Status yang Dicek",
+			Value: "`Code Review` yang terlalu lama tidak berpindah ke status lain",
 		},
 	}
 
@@ -450,7 +447,7 @@ func (d *Discord) SendHangingCodeReviewAlert(bugs []jira.Issue, severity string,
 		Color:       severityColor(severity),
 		Description: fmt.Sprintf("Bug dalam fase code review telah mencapai batas **%s** %s", severity, sEmoji),
 		Fields:      fields,
-		Footer:      &discordEmbedFooter{Text: "Jira Bug Monitor • Code Review Phase Alert"},
+		Footer:      &discordEmbedFooter{Text: "Eng Ngebug • Code Review Phase Alert"},
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
 	return d.send(discordPayload{
