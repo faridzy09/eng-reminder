@@ -38,6 +38,15 @@ func main() {
 func run(jiraClient *jira.Client, discord *notifier.Discord, mentionIDs []string, cfg *config.Config) {
 	log.Printf("[eng-reminder] ── run started at %s ──", time.Now().Format("2006-01-02 15:04:05"))
 
+	// ── Cek jam kerja WIB (UTC+7): hanya kirim notif pukul 08:00–18:00 ──
+	wib := time.FixedZone("WIB", 7*60*60)
+	nowWIB := time.Now().In(wib)
+	hour := nowWIB.Hour()
+	if hour < 8 || hour >= 18 {
+		log.Printf("[eng-reminder] outside working hours WIB (%02d:%02d), skipping notifications", hour, nowWIB.Minute())
+		return
+	}
+
 	// ── 1. Hanging bug alert: bug stuck di To Do > threshold menit ────────
 	log.Printf("[eng-reminder] checking for bugs hanging in To Do > %d minutes...", cfg.BugHangingMinutes)
 	hangingBugs, err := jiraClient.GetHangingBugs(cfg.BugHangingMinutes)
