@@ -41,5 +41,5 @@ jobs:
 
           # ── Discord ─────────────────────────────────────────────
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_LEAD_IDS: ${{ vars.DISCORD_LEAD_IDS }}
+          DISCORD_LEAD_IDS: ${{ secrets.DISCORD_LEAD_IDS }}
         run: ./eng-reminder
