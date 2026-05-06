@@ -38,21 +38,7 @@ func main() {
 func run(jiraClient *jira.Client, discord *notifier.Discord, mentionIDs []string, cfg *config.Config) {
 	log.Printf("[eng-reminder] ── run started at %s ──", time.Now().Format("2006-01-02 15:04:05"))
 
-	// ── 1. New bug alert: semua bug baru dengan status To Do ─────────────
-	log.Println("[eng-reminder] checking for new bugs in To Do...")
-	newBugs, err := jiraClient.GetNewBugs(cfg.JiraNewBugWindowMinutes)
-	if err != nil {
-		log.Printf("[eng-reminder] failed to fetch new bugs: %v", err)
-	} else if len(newBugs) > 0 {
-		log.Printf("[eng-reminder] found %d new bug(s), sending new bug alert...", len(newBugs))
-		if err := discord.SendNewBugAlert(newBugs, mentionIDs, cfg.JiraBaseURL); err != nil {
-			log.Printf("[eng-reminder] failed to send new bug alert: %v", err)
-		}
-	} else {
-		log.Println("[eng-reminder] no new bugs found")
-	}
-
-	// ── 2. Hanging bug alert: bug stuck di To Do > threshold menit ────────
+	// ── 1. Hanging bug alert: bug stuck di To Do > threshold menit ────────
 	log.Printf("[eng-reminder] checking for bugs hanging in To Do > %d minutes...", cfg.BugHangingMinutes)
 	hangingBugs, err := jiraClient.GetHangingBugs(cfg.BugHangingMinutes)
 	if err != nil {
@@ -67,7 +53,7 @@ func run(jiraClient *jira.Client, discord *notifier.Discord, mentionIDs []string
 		log.Println("[eng-reminder] no hanging bugs found")
 	}
 
-	// ── 3. Hanging Code Review alert ────────────────────────────────────
+	// ── 2. Hanging Code Review alert ────────────────────────────────────
 	log.Printf("[eng-reminder] checking for bugs hanging in Code Review > %d minutes...", cfg.CodeReviewHangingMinutes)
 	crBugs, err := jiraClient.GetHangingCodeReviews(cfg.CodeReviewHangingMinutes)
 	if err != nil {
@@ -80,20 +66,6 @@ func run(jiraClient *jira.Client, discord *notifier.Discord, mentionIDs []string
 		}
 	} else {
 		log.Println("[eng-reminder] no hanging code reviews found")
-	}
-
-	// ── 4. General open-bug reminder ─────────────────────────────────────
-	log.Println("[eng-reminder] checking Jira for latest bug issues...")
-	bugs, err := jiraClient.GetLatestBugs(cfg.JiraMaxResults, cfg.JiraNewBugWindowMinutes)
-	if err != nil {
-		log.Printf("[eng-reminder] failed to fetch Jira bugs: %v", err)
-	} else if len(bugs) == 0 {
-		log.Println("[eng-reminder] no open bug issues found, skipping reminder")
-	} else {
-		log.Printf("[eng-reminder] found %d bug issue(s), sending reminder...", len(bugs))
-		if err := discord.SendBugReminder(bugs, mentionIDs, cfg.JiraBaseURL); err != nil {
-			log.Printf("[eng-reminder] failed to send bug reminder: %v", err)
-		}
 	}
 
 	log.Println("[eng-reminder] ── run completed ──")
