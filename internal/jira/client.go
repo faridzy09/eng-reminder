@@ -1,0 +1,197 @@
+package jira
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"time"
+)
+
+// Issue represents a simplified Jira issue.
+type Issue struct {
+	Key         string
+	Summary     string
+	Status      string
+	Priority    string
+	Assignee    string
+	Reporter    string
+	Created     time.Time
+	URL         string
+	EpicKey     string
+	EpicSummary string
+	EpicURL     string
+}
+
+// Client is a minimal Jira REST API v3 client.
+type Client struct {
+	baseURL    string
+	email      string
+	apiToken   string
+	httpClient *http.Client
+}
+
+// NewClient creates a new Jira client.
+func NewClient(baseURL, email, apiToken string) *Client {
+	return &Client{
+		baseURL:  baseURL,
+		email:    email,
+		apiToken: apiToken,
+		httpClient: &http.Client{
+			Timeout: 15 * time.Second,
+		},
+	}
+}
+
+// jiraSearchResponse mirrors the Jira search API response.
+type jiraSearchResponse struct {
+	Issues []struct {
+		Key    string `json:"key"`
+		Fields struct {
+			Summary string `json:"summary"`
+			Status  struct {
+				Name string `json:"name"`
+			} `json:"status"`
+			Priority struct {
+				Name string `json:"name"`
+			} `json:"priority"`
+			Assignee *struct {
+				DisplayName string `json:"displayName"`
+			} `json:"assignee"`
+			Reporter *struct {
+				DisplayName string `json:"displayName"`
+			} `json:"reporter"`
+			Created string `json:"created"`
+			Parent  *struct {
+				Key    string `json:"key"`
+				Fields struct {
+					Summary   string `json:"summary"`
+					IssueType struct {
+						Name string `json:"name"`
+					} `json:"issuetype"`
+				} `json:"fields"`
+			} `json:"parent"`
+		} `json:"fields"`
+	} `json:"issues"`
+}
+
+// searchIssues executes a JQL query and returns the parsed issues.
+func (c *Client) searchIssues(jql string, maxResults int) ([]Issue, error) {
+	endpoint := fmt.Sprintf(
+		"%s/rest/api/3/search/jql?jql=%s&maxResults=%d&fields=summary,status,priority,assignee,reporter,created,parent",
+		c.baseURL,
+		url.QueryEscape(jql),
+		maxResults,
+	)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.SetBasicAuth(c.email, c.apiToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("jira API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result jiraSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	issues := make([]Issue, 0, len(result.Issues))
+	for _, raw := range result.Issues {
+		created, _ := time.Parse("2006-01-02T15:04:05.000-0700", raw.Fields.Created)
+
+		assignee := "_Unassigned_"
+		if raw.Fields.Assignee != nil {
+			assignee = raw.Fields.Assignee.DisplayName
+		}
+
+		reporter := "unknown"
+		if raw.Fields.Reporter != nil {
+			reporter = raw.Fields.Reporter.DisplayName
+		}
+
+		epicKey, epicSummary, epicURL := "", "", ""
+		if raw.Fields.Parent != nil && raw.Fields.Parent.Fields.IssueType.Name == "Epic" {
+			epicKey = raw.Fields.Parent.Key
+			epicSummary = raw.Fields.Parent.Fields.Summary
+			epicURL = fmt.Sprintf("%s/browse/%s", c.baseURL, raw.Fields.Parent.Key)
+		}
+
+		issues = append(issues, Issue{
+			Key:         raw.Key,
+			Summary:     raw.Fields.Summary,
+			Status:      raw.Fields.Status.Name,
+			Priority:    raw.Fields.Priority.Name,
+			Assignee:    assignee,
+			Reporter:    reporter,
+			Created:     created,
+			URL:         fmt.Sprintf("%s/browse/%s", c.baseURL, raw.Key),
+			EpicKey:     epicKey,
+			EpicSummary: epicSummary,
+			EpicURL:     epicURL,
+		})
+	}
+
+	return issues, nil
+}
+
+// GetLatestBugs fetches open bug-type issues created within the last withinMinutes, across all projects.
+func (c *Client) GetLatestBugs(maxResults int, withinMinutes int) ([]Issue, error) {
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND status in ("Todo","To Do") AND created >= "-%dm" ORDER BY created DESC`,
+		withinMinutes,
+	)
+	return c.searchIssues(jql, maxResults)
+}
+
+// GetNewBugs fetches all newly created bug-type issues with status "To Do" within the last withinMinutes.
+func (c *Client) GetNewBugs(withinMinutes int) ([]Issue, error) {
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND status in ("Todo","To Do") AND created >= "-%dm" ORDER BY created DESC`,
+		withinMinutes,
+	)
+	return c.searchIssues(jql, 50)
+}
+
+// GetHangingBugs fetches bugs stuck in "To Do" for longer than stuckMinutes, across all projects.
+func (c *Client) GetHangingBugs(stuckMinutes int) ([]Issue, error) {
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND status in ("Todo","To Do") AND created>="2026/05/04" AND created <= "-%dm" ORDER BY created DESC`,
+		stuckMinutes,
+	)
+	return c.searchIssues(jql, 100)
+}
+
+// GetHangingCodeReviews fetches bug-type issues stuck in "Code Review" status for longer than stuckMinutes.
+func (c *Client) GetHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND status in ("CODE REVIEW","Code Review") AND created>="2026/05/04" AND created <= "-%dm" ORDER BY created ASC`,
+		stuckMinutes,
+	)
+	return c.searchIssues(jql, 100)
+}
+
+// HangingSeverity returns an alert level based on the number of hanging bugs.
+// <10 → LOW, 10–14 → MIDDLE, ≥15 → HIGH
+func HangingSeverity(count int) string {
+	switch {
+	case count >= 15:
+		return "HIGH"
+	case count >= 10:
+		return "MIDDLE"
+	default:
+		return "LOW"
+	}
+}
