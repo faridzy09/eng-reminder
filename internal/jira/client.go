@@ -168,7 +168,7 @@ func (c *Client) GetNewBugs(withinMinutes int) ([]Issue, error) {
 // GetHangingBugs fetches bugs stuck in "To Do" for longer than stuckMinutes, across all projects.
 func (c *Client) GetHangingBugs(stuckMinutes int) ([]Issue, error) {
 	jql := fmt.Sprintf(
-		`issuetype = Bug AND status in ("Todo","To Do") AND created>="2026/05/04" AND created <= "-%dm" ORDER BY created DESC`,
+		`issuetype = Bug AND status in ("Todo","To Do") AND created>="2026/05/04" ORDER BY created DESC`,
 		stuckMinutes,
 	)
 	return c.searchIssues(jql, 100)
@@ -177,7 +177,7 @@ func (c *Client) GetHangingBugs(stuckMinutes int) ([]Issue, error) {
 // GetHangingCodeReviews fetches bug-type issues stuck in "Code Review" status for longer than stuckMinutes.
 func (c *Client) GetHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
 	jql := fmt.Sprintf(
-		`issuetype = Bug AND status in ("CODE REVIEW","Code Review") AND created>="2026/05/04" AND created <= "-%dm" ORDER BY created ASC`,
+		`issuetype = Bug AND status in ("CODE REVIEW","Code Review") AND created>="2026/05/04" ORDER BY created ASC`,
 		stuckMinutes,
 	)
 	return c.searchIssues(jql, 100)
