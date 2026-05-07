@@ -24,7 +24,7 @@ var Team = []Engineer{
 	{ID: 9, Name: "Andika Prasetya", StoryPointsPerDay: 6, Supervisor: "Faridho"},
 	{ID: 10, Name: "Naufal Hadi", StoryPointsPerDay: 6, Supervisor: "Faridho"},
 	{ID: 11, Name: "Fuad Rifqi Zamzami", StoryPointsPerDay: 6, Supervisor: "Faridho"},
-	{ID: 12, Name: "Andikha Apriadi", StoryPointsPerDay: 6, Supervisor: "Faridho"},
+	{ID: 12, Name: "Andikha Apriadi", StoryPointsPerDay: 6, Supervisor: "Sholahuddin Alisyahbana"},
 	{ID: 13, Name: "Junifer Rionaldi Manik", StoryPointsPerDay: 6, Supervisor: "Irvan Resna Hadiyana"},
 	{ID: 14, Name: "M. Arif Sefrianto", StoryPointsPerDay: 8, Supervisor: "Irvan Resna Hadiyana"},
 	{ID: 15, Name: "Fadli Muhamad Paridi", StoryPointsPerDay: 8, Supervisor: "Irvan Resna Hadiyana"},

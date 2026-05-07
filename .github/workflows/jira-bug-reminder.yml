@@ -6,7 +6,7 @@ on:
     - cron: "0 1,3,5,7,9,11 * * 1-5"
   repository_dispatch:
     types: [cron-from-cronjob-org] # Nama bebas, sesuaikan nanti di cron-job.org
-    
+
   workflow_dispatch:             # manual trigger
 
 jobs:
@@ -45,4 +45,5 @@ jobs:
           # ── Discord ─────────────────────────────────────────────
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_LEAD_IDS: ${{ secrets.DISCORD_LEAD_IDS }}
+          DISCORD_SP_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_SP_ALERT_WEBHOOK_URL }}
         run: ./eng-reminder

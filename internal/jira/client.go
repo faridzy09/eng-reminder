@@ -201,7 +201,7 @@ func HangingSeverity(count int) string {
 
 // GetTasksByExpectedStartDate fetches all sub-tasks/tasks whose "Expected Start Date"
 // equals the given date (YYYY-MM-DD) and assignee is one of the registered engineers.
-// Story points are read from customfield_10016.
+// Story points are read from customfield_10024.
 func (c *Client) GetTasksByExpectedStartDate(date string) ([]EngineerTask, error) {
 	// build quoted assignee list from engineer registry
 	names := make([]string, 0, len(engineer.Team))
@@ -222,7 +222,7 @@ func (c *Client) GetTasksByExpectedStartDate(date string) ([]EngineerTask, error
 	payload, err := json.Marshal(map[string]interface{}{
 		"jql":        jql,
 		"maxResults": 200,
-		"fields":     []string{"summary", "assignee", "customfield_10016", "customfield_10195"},
+		"fields":     []string{"summary", "assignee", "customfield_10024", "customfield_10195"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -255,7 +255,7 @@ func (c *Client) GetTasksByExpectedStartDate(date string) ([]EngineerTask, error
 				Assignee *struct {
 					DisplayName string `json:"displayName"`
 				} `json:"assignee"`
-				StoryPoints *float64 `json:"customfield_10016"`
+				StoryPoints *float64 `json:"customfield_10024"`
 			} `json:"fields"`
 		} `json:"issues"`
 	}
