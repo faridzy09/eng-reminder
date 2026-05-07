@@ -15,17 +15,18 @@ import (
 
 // Issue represents a simplified Jira issue.
 type Issue struct {
-	Key         string
-	Summary     string
-	Status      string
-	Priority    string
-	Assignee    string
-	Reporter    string
-	Created     time.Time
-	URL         string
-	EpicKey     string
-	EpicSummary string
-	EpicURL     string
+	Key             string
+	Summary         string
+	Status          string
+	Priority        string
+	Assignee        string
+	Reporter        string
+	Created         time.Time
+	CodeReviewSince time.Time // zero if not yet in Code Review, or if changelog unavailable
+	URL             string
+	EpicKey         string
+	EpicSummary     string
+	EpicURL         string
 }
 
 // EngineerTask is a simplified task used for daily SP capacity checking.
@@ -185,6 +186,86 @@ func (c *Client) GetHangingBugs(stuckMinutes int) ([]Issue, error) {
 func (c *Client) GetHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
 	jql := `issuetype = Bug AND status in ("CODE REVIEW","Code Review") AND created>="2026/05/04" ORDER BY created ASC`
 	return c.searchIssues(jql, 100)
+}
+
+// GetCodeReviewTasks fetches all sub-tasks/tasks that are in "Code Review" status,
+// created on or after 2026/05/04, and assigned to one of the registered engineers.
+// It also fetches each issue's changelog to determine when it transitioned to Code Review.
+func (c *Client) GetCodeReviewTasks() ([]Issue, error) {
+	names := make([]string, 0, len(engineer.Team))
+	for _, eng := range engineer.Team {
+		names = append(names, fmt.Sprintf(`"%s"`, eng.Name))
+	}
+	assigneeList := strings.Join(names, ",")
+
+	jql := fmt.Sprintf(
+		`issuetype in (Sub-task,"Sub-task Engineer",Task,Subtask) AND status in ("CODE REVIEW","Code Review") AND created>="2026/05/04" AND assignee in (%s) ORDER BY created ASC`,
+		assigneeList,
+	)
+	issues, err := c.searchIssues(jql, 200)
+	if err != nil {
+		return nil, err
+	}
+
+	// Enrich each issue with the time it transitioned to Code Review
+	for i := range issues {
+		t, err := c.getCodeReviewTransitionTime(issues[i].Key)
+		if err == nil && !t.IsZero() {
+			issues[i].CodeReviewSince = t
+		}
+	}
+	return issues, nil
+}
+
+// getCodeReviewTransitionTime fetches the changelog of an issue and returns the most recent
+// time the status was changed to "Code Review" (or "CODE REVIEW"). Returns zero time if not found.
+func (c *Client) getCodeReviewTransitionTime(issueKey string) (time.Time, error) {
+	endpoint := fmt.Sprintf("%s/rest/api/3/issue/%s/changelog", c.baseURL, issueKey)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("build changelog request: %w", err)
+	}
+	req.SetBasicAuth(c.email, c.apiToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("do changelog request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return time.Time{}, fmt.Errorf("jira changelog API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Values []struct {
+			Created string `json:"created"`
+			Items   []struct {
+				Field    string `json:"field"`
+				ToString string `json:"toString"`
+			} `json:"items"`
+		} `json:"values"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return time.Time{}, fmt.Errorf("decode changelog: %w", err)
+	}
+
+	var latest time.Time
+	for _, entry := range result.Values {
+		for _, item := range entry.Items {
+			if strings.EqualFold(item.Field, "status") &&
+				(strings.EqualFold(item.ToString, "code review") || strings.EqualFold(item.ToString, "CODE REVIEW")) {
+				t, err := time.Parse("2006-01-02T15:04:05.000-0700", entry.Created)
+				if err == nil && t.After(latest) {
+					latest = t
+				}
+			}
+		}
+	}
+	return latest, nil
 }
 
 // HangingSeverity returns an alert level based on the number of hanging bugs.

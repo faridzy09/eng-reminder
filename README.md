@@ -10,8 +10,7 @@ GitHub Actions bot yang memantau tiket **Bug** di Jira dan **kapasitas SP harian
 |---|-----------|---------|---------|---------|
 | 1 | **Hanging Bug (To Do)** | Bug channel | 15 menit | Bug stuck di `To Do` / `Rejected` sejak tanggal tertentu |
 | 2 | **Hanging Code Review** | Bug channel | 15 menit | Bug stuck di `Code Review` sejak tanggal tertentu |
-| 3 | **SP Capacity Check** | SP channel | 30 menit | Ringkasan SP harian per engineer, dikelompokkan per SPV |
-
+| 3 | **SP Capacity Check** | SP channel | 30 menit | Ringkasan SP harian per engineer, dikelompokkan per SPV || 4 | **Code Review Task Alert** | Code Review channel | 60 menit | Task engineer (Sub-task/Task) yang sedang di `Code Review`, dikelompokkan per SPV |
 Severity hanging alert dihitung dari jumlah tiket:
 
 | Jumlah Tiket | Severity |
@@ -113,9 +112,10 @@ go mod download
 
 ### 4. Buat Discord Webhook
 
-Buat **2 webhook** di channel yang berbeda:
-1. **Bug alert channel** → untuk notif hanging bug & code review
+Buat **3 webhook** di channel yang berbeda:
+1. **Bug alert channel** → untuk notif hanging bug & code review (bug)
 2. **SP capacity channel** → untuk notif SP harian per engineer
+3. **Code review channel** → untuk notif task engineer yang perlu direview lead
 
 Untuk setiap channel:
 1. Klik ⚙️ **Edit Channel** → **Integrations** → **Webhooks**
@@ -147,6 +147,9 @@ DISCORD_LEAD_IDS=123456789012345678,987654321098765432
 
 # Discord — SP capacity alert channel (opsional, SP check dinonaktifkan jika kosong)
 DISCORD_SP_ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
+
+# Discord — Code review task alert channel (opsional, dinonaktifkan jika kosong)
+DISCORD_CODE_REVIEW_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
 ```
 
 ### 6. Jalankan Lokal
@@ -180,6 +183,7 @@ Tambahkan di **Settings → Secrets and variables → Actions → Secrets**:
 | `DISCORD_WEBHOOK_URL` | Discord Webhook URL — bug alert channel |
 | `DISCORD_LEAD_IDS` | Comma-separated Discord user IDs lead engineer |
 | `DISCORD_SP_ALERT_WEBHOOK_URL` | Discord Webhook URL — SP capacity channel |
+| `DISCORD_CODE_REVIEW_WEBHOOK_URL` | Discord Webhook URL — code review task alert channel |
 
 ### Variables (opsional, ada default)
 
@@ -203,8 +207,9 @@ Tambahkan di **Settings → Secrets and variables → Actions → Variables**:
 
 ```
 startup
-  ├── runBugAlerts()   ← langsung dijalankan
-  └── runSPCheck()     ← langsung dijalankan
+  ├── runBugAlerts()        ← langsung dijalankan
+  ├── runSPCheck()          ← langsung dijalankan
+  └── runCodeReviewCheck()  ← langsung dijalankan
 
 loop:
   ├── setiap 15 menit → runBugAlerts()
@@ -212,19 +217,31 @@ loop:
   │     ├── GetHangingBugs()        → SendHangingBugAlert()
   │     └── GetHangingCodeReviews() → SendHangingCodeReviewAlert()
   │
-  └── setiap 30 menit → runSPCheck()
+  ├── setiap 30 menit → runSPCheck()
+  │     ├── cek jam kerja WIB (08:00–18:00), skip jika di luar
+  │     ├── GetTasksByExpectedStartDate(today)
+  │     │     JQL: issuetype in (Sub-task, "Sub-task Engineer", Subtask, Task)
+  │     │           AND "Expected Start Date[Date]" = "YYYY/MM/DD"
+  │     │           AND assignee in (<25 engineer names>)
+  │     ├── categorizeEngineerSP()
+  │     │     → above  : totalSP >= dailyCapacity
+  │     │     → below  : totalSP < dailyCapacity
+  │     │     → noTasks: tidak ada task hari ini
+  │     └── SendSPCapacityAlert()
+  │           → 1 summary embed (total SP aktual, kapasitas, utilisasi)
+  │           → 1 embed per SPV (✅ sesuai · ⚠️ kurang · 🚫 belum ada task)
+  │
+  └── setiap 60 menit → runCodeReviewCheck()
         ├── cek jam kerja WIB (08:00–18:00), skip jika di luar
-        ├── GetTasksByExpectedStartDate(today)
-        │     JQL: issuetype in (Sub-task, "Sub-task Engineer", Subtask, Task)
-        │           AND "Expected Start Date[Date]" = "YYYY/MM/DD"
+        ├── GetCodeReviewTasks()
+        │     JQL: issuetype in (Sub-task, "Sub-task Engineer", Task, Subtask)
+        │           AND status in ("CODE REVIEW", "Code Review")
+        │           AND created >= "2026/05/04"
         │           AND assignee in (<25 engineer names>)
-        ├── categorizeEngineerSP()
-        │     → above  : totalSP >= dailyCapacity
-        │     → below  : totalSP < dailyCapacity
-        │     → noTasks: tidak ada task hari ini
-        └── SendSPCapacityAlert()
-              → 1 summary embed (total SP aktual, kapasitas, utilisasi)
-              → 1 embed per SPV (✅ sesuai · ⚠️ kurang · 🚫 belum ada task)
+        │     + fetch changelog per tiket → CodeReviewSince
+        └── SendCodeReviewTaskAlert()
+              → 1 summary embed (total task, total engineer)
+              → 1 embed per SPV (hanya SPV yang punya task Code Review)
 ```
 
 ---
@@ -275,6 +292,35 @@ loop:
 > 🚫 **Ridho Tanjung** — belum ada task
 >
 > _(dst. per SPV...)_
+
+### Code Review Task Alert
+
+> `<@lead1> <@lead2>`
+>
+> 🔍 **Code Review Needed — 2026-05-07**
+> Terdapat **5** task engineer yang sedang dalam status **Code Review** dan membutuhkan review dari lead.
+> _Dikelompokkan per SPV._
+>
+> 📋 **Total Task** &nbsp;&nbsp; 👥 **Total Engineer**
+> **5** task &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; **3** engineer
+>
+> _Eng Reminder • Code Review Task Alert_
+
+---
+
+> 👤 **SPV: Faridho**
+>
+> **Task dalam Code Review**
+> 🔸 **Adi Saputra** — [[PROJ-123] Fix data pipeline timeout](https://...atlassian.net/browse/PROJ-123)
+>    _2h 15m di Code Review_
+> 🔸 **Rizki Gumilar** — [[PROJ-124] Update ETL schema migration](https://...atlassian.net/browse/PROJ-124)
+>    _45m di Code Review_
+>
+> 👤 **SPV: Falih Mulyana**
+>
+> **Task dalam Code Review**
+> 🔸 **Bayu Kurniawan** — [[PROJ-125] Add retry logic for API calls](https://...atlassian.net/browse/PROJ-125)
+>    _1h 30m di Code Review_
 
 ---
 

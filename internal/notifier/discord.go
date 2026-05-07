@@ -632,3 +632,126 @@ func (d *Discord) SendSPCapacityAlert(
 	}
 	return nil
 }
+
+// friendlyDuration formats a duration as "Xj Ym" (jam & menit) in Indonesian.
+// Seconds are ignored. Examples: 2h15m → "2j 15m", 45m → "45m", 3h → "3j".
+func friendlyDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	switch {
+	case h > 0 && m > 0:
+		return fmt.Sprintf("%dj %dm", h, m)
+	case h > 0:
+		return fmt.Sprintf("%dj", h)
+	default:
+		return fmt.Sprintf("%dm", m)
+	}
+}
+
+// SendCodeReviewTaskAlert notifies leads about engineer tasks that are in Code Review,
+// grouped by supervisor so each lead can see which of their engineers needs a review.
+func (d *Discord) SendCodeReviewTaskAlert(issues []jira.Issue, mentionIDs []string) error {
+	// group issues by assignee
+	tasksByAssignee := make(map[string][]jira.Issue)
+	assigneeOrder := []string{}
+	for _, iss := range issues {
+		if _, exists := tasksByAssignee[iss.Assignee]; !exists {
+			assigneeOrder = append(assigneeOrder, iss.Assignee)
+		}
+		tasksByAssignee[iss.Assignee] = append(tasksByAssignee[iss.Assignee], iss)
+	}
+
+	// collect unique supervisor order from engineer registry
+	spvOrder := []string{}
+	spvSeen := map[string]bool{}
+	for _, eng := range engineer.Team {
+		if !spvSeen[eng.Supervisor] {
+			spvOrder = append(spvOrder, eng.Supervisor)
+			spvSeen[eng.Supervisor] = true
+		}
+	}
+
+	// summary embed
+	wib := time.FixedZone("WIB", 7*60*60)
+	summaryEmbed := discordEmbed{
+		Title: fmt.Sprintf("🔍 Code Review Needed — %s", time.Now().In(wib).Format("2006-01-02 15:04")),
+		Color: colorOrange,
+		Description: fmt.Sprintf(
+			"Ada **%d** task engineer dalam status **Code Review** yang perlu direview.\n_Dikelompokkan per SPV di bawah ini._",
+			len(issues),
+		),
+		Fields: []discordEmbedField{
+			{
+				Name:   "📋 Total Task",
+				Value:  fmt.Sprintf("**%d** task", len(issues)),
+				Inline: true,
+			},
+			{
+				Name:   "👥 Total Engineer",
+				Value:  fmt.Sprintf("**%d** engineer", len(assigneeOrder)),
+				Inline: true,
+			},
+		},
+		Footer:    &discordEmbedFooter{Text: "Eng Reminder • Code Review Task Alert"},
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	embeds := []discordEmbed{summaryEmbed}
+
+	// one embed per supervisor that has engineers with code-review tasks
+	for _, spv := range spvOrder {
+		var lines []string
+		taskCount := 0
+		engCount := 0
+		for _, eng := range engineer.Team {
+			if eng.Supervisor != spv {
+				continue
+			}
+			tasks, ok := tasksByAssignee[eng.Name]
+			if !ok {
+				continue
+			}
+			engCount++
+			for _, t := range tasks {
+				taskCount++
+				var durLabel string
+				if !t.CodeReviewSince.IsZero() {
+					durLabel = friendlyDuration(time.Since(t.CodeReviewSince)) + " di CR"
+				} else {
+					durLabel = friendlyDuration(time.Since(t.Created)) + " sejak dibuat"
+				}
+				lines = append(lines, fmt.Sprintf(
+					"🔸 **%s** · `%s` · _%s_\n　[[%s] %s](%s)",
+					eng.Name, durLabel, t.Status, t.Key, truncate(t.Summary, 70), t.URL,
+				))
+			}
+		}
+		if len(lines) == 0 {
+			continue
+		}
+		body := strings.Join(lines, "\n\n")
+		embeds = append(embeds, discordEmbed{
+			Title:       fmt.Sprintf("👤 SPV: %s  (%d task · %d engineer)", spv, taskCount, engCount),
+			Color:       colorOrange,
+			Description: truncate(body, 4096),
+		})
+	}
+
+	// split into batches of 10 embeds (Discord limit)
+	const maxEmbedsPerReq = 10
+	for i := 0; i < len(embeds); i += maxEmbedsPerReq {
+		end := i + maxEmbedsPerReq
+		if end > len(embeds) {
+			end = len(embeds)
+		}
+		content := ""
+		if i == 0 {
+			content = buildMentionText(mentionIDs)
+		}
+		if err := d.send(discordPayload{Content: content, Embeds: embeds[i:end]}); err != nil {
+			return err
+		}
+	}
+	return nil
+}

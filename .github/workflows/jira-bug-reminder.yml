@@ -46,4 +46,5 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_LEAD_IDS: ${{ secrets.DISCORD_LEAD_IDS }}
           DISCORD_SP_ALERT_WEBHOOK_URL: ${{ secrets.DISCORD_SP_ALERT_WEBHOOK_URL }}
+          DISCORD_CODE_REVIEW_WEBHOOK_URL: ${{ secrets.DISCORD_CODE_REVIEW_WEBHOOK_URL }}
         run: ./eng-reminder

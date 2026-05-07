@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	tickIntervalBug = 15 * time.Minute
-	tickIntervalSP  = 30 * time.Minute
+	tickIntervalBug        = 15 * time.Minute
+	tickIntervalSP         = 30 * time.Minute
+	tickIntervalCodeReview = 60 * time.Minute
 )
 
 func main() {
@@ -32,9 +33,15 @@ func main() {
 		discordSP = notifier.NewDiscord(cfg.DiscordSPAlertWebhookURL)
 	}
 
+	var discordCodeReview *notifier.Discord
+	if cfg.DiscordCodeReviewWebhookURL != "" {
+		discordCodeReview = notifier.NewDiscord(cfg.DiscordCodeReviewWebhookURL)
+	}
+
 	// Jalankan langsung saat pertama kali start
 	runBugAlerts(jiraClient, discord, mentionIDs, cfg)
 	runSPCheck(jiraClient, discordSP, mentionIDs, cfg)
+	runCodeReviewCheck(jiraClient, discordCodeReview, mentionIDs)
 
 	// Bug alerts setiap 15 menit
 	bugTicker := time.NewTicker(tickIntervalBug)
@@ -44,12 +51,18 @@ func main() {
 	spTicker := time.NewTicker(tickIntervalSP)
 	defer spTicker.Stop()
 
+	// Code review task alert setiap 15 menit
+	crTaskTicker := time.NewTicker(tickIntervalCodeReview)
+	defer crTaskTicker.Stop()
+
 	for {
 		select {
 		case <-bugTicker.C:
 			runBugAlerts(jiraClient, discord, mentionIDs, cfg)
 		case <-spTicker.C:
 			runSPCheck(jiraClient, discordSP, mentionIDs, cfg)
+		case <-crTaskTicker.C:
+			runCodeReviewCheck(jiraClient, discordCodeReview, mentionIDs)
 		}
 	}
 }
@@ -173,6 +186,38 @@ func categorizeEngineerSP(tasks []jira.EngineerTask) (above, below []jira.Engine
 		}
 	}
 	return
+}
+
+func runCodeReviewCheck(jiraClient *jira.Client, discordCR *notifier.Discord, mentionIDs []string) {
+	if discordCR == nil {
+		return
+	}
+
+	log.Printf("[eng-reminder] ── code review task check started at %s ──", time.Now().Format("2006-01-02 15:04:05"))
+
+	wib := time.FixedZone("WIB", 7*60*60)
+	nowWIB := time.Now().In(wib)
+	hour := nowWIB.Hour()
+	if hour < 8 || hour >= 18 {
+		log.Printf("[eng-reminder] outside working hours WIB (%02d:%02d), skipping code review task check", hour, nowWIB.Minute())
+		return
+	}
+
+	issues, err := jiraClient.GetCodeReviewTasks()
+	if err != nil {
+		log.Printf("[eng-reminder] failed to fetch code review tasks: %v", err)
+		return
+	}
+	if len(issues) == 0 {
+		log.Println("[eng-reminder] no code review tasks found for engineers")
+		return
+	}
+	log.Printf("[eng-reminder] found %d code review task(s), sending alert...", len(issues))
+	if err := discordCR.SendCodeReviewTaskAlert(issues, mentionIDs); err != nil {
+		log.Printf("[eng-reminder] failed to send code review task alert: %v", err)
+	}
+
+	log.Println("[eng-reminder] ── code review task check completed ──")
 }
 
 // parseMentions splits a comma-separated string of Discord user IDs.

@@ -10,16 +10,17 @@ import (
 
 // Config holds all environment-driven configuration.
 type Config struct {
-	JiraBaseURL              string
-	JiraEmail                string
-	JiraAPIToken             string
-	JiraMaxResults           int
-	JiraNewBugWindowMinutes  int // lookback window for new-bug alerts (default 15 min)
-	BugHangingMinutes        int // minutes before a To Do bug is considered hanging (default 10)
-	CodeReviewHangingMinutes int // minutes before a Code Review bug is considered hanging (default 10)
-	DiscordWebhookURL        string
-	DiscordLeadIDs           string // comma-separated Discord user IDs (numeric) e.g. "123456789012345678,987654321098765432"
-	DiscordSPAlertWebhookURL string // webhook for the SP capacity alert channel (optional)
+	JiraBaseURL                 string
+	JiraEmail                   string
+	JiraAPIToken                string
+	JiraMaxResults              int
+	JiraNewBugWindowMinutes     int // lookback window for new-bug alerts (default 15 min)
+	BugHangingMinutes           int // minutes before a To Do bug is considered hanging (default 10)
+	CodeReviewHangingMinutes    int // minutes before a Code Review bug is considered hanging (default 10)
+	DiscordWebhookURL           string
+	DiscordLeadIDs              string // comma-separated Discord user IDs (numeric) e.g. "123456789012345678,987654321098765432"
+	DiscordSPAlertWebhookURL    string // webhook for the SP capacity alert channel (optional)
+	DiscordCodeReviewWebhookURL string // webhook for the engineer code review task alert channel (optional)
 }
 
 // Load reads configuration from environment variables.
@@ -56,16 +57,17 @@ func Load() *Config {
 	}
 
 	return &Config{
-		JiraBaseURL:              os.Getenv("JIRA_BASE_URL"),
-		JiraEmail:                os.Getenv("JIRA_EMAIL"),
-		JiraAPIToken:             os.Getenv("JIRA_API_TOKEN"),
-		JiraMaxResults:           maxResults,
-		JiraNewBugWindowMinutes:  newBugWindow,
-		BugHangingMinutes:        hangingMinutes,
-		CodeReviewHangingMinutes: crHangingMinutes,
-		DiscordWebhookURL:        os.Getenv("DISCORD_WEBHOOK_URL"),
-		DiscordLeadIDs:           os.Getenv("DISCORD_LEAD_IDS"),
-		DiscordSPAlertWebhookURL: os.Getenv("DISCORD_SP_ALERT_WEBHOOK_URL"),
+		JiraBaseURL:                 os.Getenv("JIRA_BASE_URL"),
+		JiraEmail:                   os.Getenv("JIRA_EMAIL"),
+		JiraAPIToken:                os.Getenv("JIRA_API_TOKEN"),
+		JiraMaxResults:              maxResults,
+		JiraNewBugWindowMinutes:     newBugWindow,
+		BugHangingMinutes:           hangingMinutes,
+		CodeReviewHangingMinutes:    crHangingMinutes,
+		DiscordWebhookURL:           os.Getenv("DISCORD_WEBHOOK_URL"),
+		DiscordLeadIDs:              os.Getenv("DISCORD_LEAD_IDS"),
+		DiscordSPAlertWebhookURL:    os.Getenv("DISCORD_SP_ALERT_WEBHOOK_URL"),
+		DiscordCodeReviewWebhookURL: os.Getenv("DISCORD_CODE_REVIEW_WEBHOOK_URL"),
 	}
 }
 
