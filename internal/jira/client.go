@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -255,7 +256,7 @@ func (c *Client) GetTasksByExpectedStartDate(date string) ([]EngineerTask, error
 				Assignee *struct {
 					DisplayName string `json:"displayName"`
 				} `json:"assignee"`
-				StoryPoints *float64 `json:"customfield_10024"`
+				StoryPoints json.RawMessage `json:"customfield_10024"`
 			} `json:"fields"`
 		} `json:"issues"`
 	}
@@ -269,10 +270,7 @@ func (c *Client) GetTasksByExpectedStartDate(date string) ([]EngineerTask, error
 		if raw.Fields.Assignee != nil {
 			assignee = raw.Fields.Assignee.DisplayName
 		}
-		sp := 0.0
-		if raw.Fields.StoryPoints != nil {
-			sp = *raw.Fields.StoryPoints
-		}
+		sp := parseRawSP(raw.Fields.StoryPoints)
 		tasks = append(tasks, EngineerTask{
 			Key:         raw.Key,
 			Summary:     raw.Fields.Summary,
@@ -282,4 +280,26 @@ func (c *Client) GetTasksByExpectedStartDate(date string) ([]EngineerTask, error
 		})
 	}
 	return tasks, nil
+}
+
+// parseRawSP parses a Jira story-points field that may be a JSON number, a quoted
+// number string, or null. Also handles comma as decimal separator (e.g. "1,5").
+func parseRawSP(raw json.RawMessage) float64 {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0
+	}
+	// try direct number (most common)
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return f
+	}
+	// try quoted string (e.g. "5" or "1.5" or "1,5")
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		s = strings.ReplaceAll(s, ",", ".")
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			return f
+		}
+	}
+	return 0
 }
