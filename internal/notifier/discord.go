@@ -537,7 +537,7 @@ func (d *Discord) SendSPCapacityAlert(
 		Fields: []discordEmbedField{
 			{
 				Name:   "🎯 Total SP Harian (Aktual)",
-				Value:  fmt.Sprintf("**%.0f SP** dari %d task", totalActualSP, totalTaskCount),
+				Value:  fmt.Sprintf("**%g SP** dari %d task", totalActualSP, totalTaskCount),
 				Inline: true,
 			},
 			{
@@ -571,9 +571,9 @@ func (d *Discord) SendSPCapacityAlert(
 				continue
 			}
 			if s, ok := aboveMap[eng.Name]; ok {
-				aboveLines = append(aboveLines, fmt.Sprintf("✅ **%s** — %.0f / %d SP (%d task)", s.EngineerName, s.TotalSP, s.DailyCapacity, s.TaskCount))
+				aboveLines = append(aboveLines, fmt.Sprintf("✅ **%s** — %g / %d SP (%d task)", s.EngineerName, s.TotalSP, s.DailyCapacity, s.TaskCount))
 			} else if s, ok := belowMap[eng.Name]; ok {
-				belowLines = append(belowLines, fmt.Sprintf("⚠️ **%s** — %.0f / %d SP (%d task)", s.EngineerName, s.TotalSP, s.DailyCapacity, s.TaskCount))
+				belowLines = append(belowLines, fmt.Sprintf("⚠️ **%s** — %g / %d SP (%d task)", s.EngineerName, s.TotalSP, s.DailyCapacity, s.TaskCount))
 			} else if noTaskSet[eng.Name] {
 				noTaskLines = append(noTaskLines, fmt.Sprintf("🚫 **%s** — belum ada task", eng.Name))
 			}
