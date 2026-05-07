@@ -1,11 +1,11 @@
 package jira
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 )
 
@@ -78,19 +78,24 @@ type jiraSearchResponse struct {
 
 // searchIssues executes a JQL query and returns the parsed issues.
 func (c *Client) searchIssues(jql string, maxResults int) ([]Issue, error) {
-	endpoint := fmt.Sprintf(
-		"%s/rest/api/3/search/jql?jql=%s&maxResults=%d&fields=summary,status,priority,assignee,reporter,created,parent",
-		c.baseURL,
-		url.QueryEscape(jql),
-		maxResults,
-	)
+	endpoint := fmt.Sprintf("%s/rest/api/3/search/jql", c.baseURL)
 
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	payload, err := json.Marshal(map[string]interface{}{
+		"jql":        jql,
+		"maxResults": maxResults,
+		"fields":     []string{"summary", "status", "priority", "assignee", "reporter", "created", "parent"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.SetBasicAuth(c.email, c.apiToken)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
