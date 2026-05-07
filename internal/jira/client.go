@@ -173,24 +173,6 @@ func (c *Client) searchIssues(jql string, maxResults int) ([]Issue, error) {
 	return issues, nil
 }
 
-// GetLatestBugs fetches open bug-type issues created within the last withinMinutes, across all projects.
-func (c *Client) GetLatestBugs(maxResults int, withinMinutes int) ([]Issue, error) {
-	jql := fmt.Sprintf(
-		`issuetype = Bug AND status in ("Todo","To Do") AND created >= "-%dm" ORDER BY created DESC`,
-		withinMinutes,
-	)
-	return c.searchIssues(jql, maxResults)
-}
-
-// GetNewBugs fetches all newly created bug-type issues with status "To Do" within the last withinMinutes.
-func (c *Client) GetNewBugs(withinMinutes int) ([]Issue, error) {
-	jql := fmt.Sprintf(
-		`issuetype = Bug AND status in ("Todo","To Do") AND created >= "-%dm" ORDER BY created DESC`,
-		withinMinutes,
-	)
-	return c.searchIssues(jql, 50)
-}
-
 // GetHangingBugs fetches bugs stuck in "To Do" for longer than stuckMinutes, across all projects.
 func (c *Client) GetHangingBugs(stuckMinutes int) ([]Issue, error) {
 	jql := `issuetype = Bug AND status in ("Todo","To Do","Reject","Rejected") AND created>="2026/05/04" ORDER BY created DESC`

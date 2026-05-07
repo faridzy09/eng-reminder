@@ -1,13 +1,16 @@
 # eng-reminder
 
-GitHub Actions bot yang secara otomatis memantau tiket **Bug** di Jira setiap **5 menit** dan mengirim notifikasi ke **Discord**. Bot ini mencakup empat jenis notifikasi:
+GitHub Actions bot yang memantau tiket **Bug** di Jira dan **kapasitas SP harian** engineer, lalu mengirim notifikasi ke **Discord**. Berjalan otomatis setiap jam kerja WIB (08:00–18:00).
 
-| # | Notifikasi | Trigger |
-|---|-----------|---------|
-| 1 | **New Bug Alert** | Ada tiket Bug baru dengan status `To Do` |
-| 2 | **Hanging Bug (To Do)** | Bug stuck di `To Do` > threshold menit |
-| 3 | **Hanging Code Review** | Bug stuck di `Code Review` > threshold menit |
-| 4 | **Open Bug Reminder** | Ringkasan semua bug yang belum selesai |
+---
+
+## Jenis Notifikasi
+
+| # | Notifikasi | Channel | Interval | Trigger |
+|---|-----------|---------|---------|---------|
+| 1 | **Hanging Bug (To Do)** | Bug channel | 15 menit | Bug stuck di `To Do` / `Rejected` sejak tanggal tertentu |
+| 2 | **Hanging Code Review** | Bug channel | 15 menit | Bug stuck di `Code Review` sejak tanggal tertentu |
+| 3 | **SP Capacity Check** | SP channel | 30 menit | Ringkasan SP harian per engineer, dikelompokkan per SPV |
 
 Severity hanging alert dihitung dari jumlah tiket:
 
@@ -25,22 +28,56 @@ Severity hanging alert dihitung dari jumlah tiket:
 eng-reminder/
 ├── .github/
 │   └── workflows/
-│       └── jira-bug-reminder.yml   # GitHub Actions — cron */5 * * * *
+│       └── jira-bug-reminder.yml     # GitHub Actions workflow
 ├── cmd/
-│   └── main.go                     # Entry point
+│   └── main.go                       # Entry point — dua ticker (15m bug, 30m SP)
 ├── internal/
 │   ├── config/
-│   │   └── config.go               # Baca env vars & validasi
+│   │   └── config.go                 # Baca env vars & validasi
+│   ├── engineer/
+│   │   └── engineer.go               # Daftar 25 data engineer + SPV + SP/hari
 │   ├── jira/
-│   │   └── client.go               # Jira REST API v3 client
+│   │   └── client.go                 # Jira REST API v3 client (POST /search/jql)
 │   └── notifier/
-│       └── discord.go              # Discord Incoming Webhook notifier
-├── .env                            # Env vars untuk local dev (jangan di-commit)
+│       └── discord.go                # Discord Incoming Webhook notifier
+├── .env                              # Env vars untuk local dev (jangan di-commit)
 ├── .gitignore
 ├── go.mod
 ├── go.sum
 └── README.md
 ```
+
+---
+
+## Tim Data Engineer
+
+| No | Nama | SP/Hari | SPV |
+|----|------|:-------:|-----|
+| 1 | Yandra Charlos Hasugian | 8 | DeriKurniawan |
+| 2 | Bayu Kurniawan | 6 | Falih Mulyana |
+| 3 | Fiqri Ramadhan | 6 | Falih Mulyana |
+| 4 | Muhamad Lutfi Alfiansyah | 6 | Falih Mulyana |
+| 5 | Risyadul Alim | 6 | Falih Mulyana |
+| 6 | Ridho Tanjung | 6 | Falih Mulyana |
+| 7 | Adi Saputra | 6 | Faridho |
+| 8 | Rizki Gumilar | 6 | Faridho |
+| 9 | Andika Prasetya | 6 | Faridho |
+| 10 | Naufal Hadi | 6 | Faridho |
+| 11 | Fuad Rifqi Zamzami | 6 | Faridho |
+| 12 | Andikha Apriadi | 6 | Faridho |
+| 13 | Junifer Rionaldi Manik | 6 | Irvan Resna Hadiyana |
+| 14 | M. Arif Sefrianto | 8 | Irvan Resna Hadiyana |
+| 15 | Fadli Muhamad Paridi | 8 | Irvan Resna Hadiyana |
+| 16 | Anom Yulian Hartanto | 6 | Muhammad Farid H |
+| 17 | Yusuf Gutara | 6 | Muhammad Farid H |
+| 18 | Fajrul Aulia | 6 | Sholahuddin Alisyahbana |
+| 19 | Dani Mulyana | 6 | Susi Cahyati |
+| 20 | Rosyid Rosadi | 6 | Susi Cahyati |
+| 21 | Fajar Darwis | 6 | Susi Cahyati |
+| 22 | Rifat Firdaus | 6 | Susi Cahyati |
+| 23 | Clara Anggraini | 6 | Susi Cahyati |
+| 24 | Indra Ikwal | 6 | DeriKurniawan |
+| 25 | Pratama Egho | 6 | Faridho |
 
 ---
 
@@ -76,19 +113,15 @@ go mod download
 
 ### 4. Buat Discord Webhook
 
-1. Buka Discord server → pilih channel tujuan
-2. Klik ⚙️ **Edit Channel** → **Integrations** → **Webhooks**
-3. Klik **New Webhook** → beri nama (contoh: `eng-reminder`)
-4. Klik **Copy Webhook URL**
-5. Simpan URL tersebut untuk diisi di `.env`
+Buat **2 webhook** di channel yang berbeda:
+1. **Bug alert channel** → untuk notif hanging bug & code review
+2. **SP capacity channel** → untuk notif SP harian per engineer
+
+Untuk setiap channel:
+1. Klik ⚙️ **Edit Channel** → **Integrations** → **Webhooks**
+2. Klik **New Webhook** → beri nama → **Copy Webhook URL**
 
 ### 5. Konfigurasi Env Vars
-
-Salin file `.env` dan isi nilainya:
-
-```bash
-cp .env .env.local   # opsional, atau langsung edit .env
-```
 
 ```env
 # Jira
@@ -97,22 +130,23 @@ JIRA_EMAIL=your-email@company.com
 JIRA_API_TOKEN=your_jira_api_token
 JIRA_MAX_RESULTS=10
 
-# Menit lookback untuk new bug alert (default: 15)
-JIRA_NEW_BUG_WINDOW_MINUTES=15
-
 # Menit threshold bug stuck di To Do (default: 10)
 BUG_HANGING_MINUTES=10
 
 # Menit threshold bug stuck di Code Review (default: 10)
 CODE_REVIEW_HANGING_MINUTES=10
 
-# Discord
+# Discord — Bug alert channel
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
 
 # Discord user ID lead engineer yang akan di-mention (numeric snowflake)
 # Cara dapat: Discord → Settings → Advanced → Enable Developer Mode
 #             Lalu klik kanan user → Copy User ID
+# Berlaku untuk kedua channel (bug & SP)
 DISCORD_LEAD_IDS=123456789012345678,987654321098765432
+
+# Discord — SP capacity alert channel (opsional, SP check dinonaktifkan jika kosong)
+DISCORD_SP_ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
 ```
 
 ### 6. Jalankan Lokal
@@ -143,7 +177,9 @@ Tambahkan di **Settings → Secrets and variables → Actions → Secrets**:
 | `JIRA_BASE_URL` | `https://yourcompany.atlassian.net` |
 | `JIRA_EMAIL` | Email akun Jira |
 | `JIRA_API_TOKEN` | API Token dari Atlassian |
-| `DISCORD_WEBHOOK_URL` | Discord Incoming Webhook URL |
+| `DISCORD_WEBHOOK_URL` | Discord Webhook URL — bug alert channel |
+| `DISCORD_LEAD_IDS` | Comma-separated Discord user IDs lead engineer |
+| `DISCORD_SP_ALERT_WEBHOOK_URL` | Discord Webhook URL — SP capacity channel |
 
 ### Variables (opsional, ada default)
 
@@ -151,15 +187,11 @@ Tambahkan di **Settings → Secrets and variables → Actions → Variables**:
 
 | Variable | Default | Keterangan |
 |----------|---------|------------|
-| `JIRA_MAX_RESULTS` | `10` | Jumlah maks bug di open bug reminder |
-| `JIRA_NEW_BUG_WINDOW_MINUTES` | `15` | Lookback window new bug alert (menit) |
+| `JIRA_MAX_RESULTS` | `10` | Jumlah maks hasil query |
 | `BUG_HANGING_MINUTES` | `10` | Threshold bug hanging di To Do (menit) |
 | `CODE_REVIEW_HANGING_MINUTES` | `10` | Threshold bug hanging di Code Review (menit) |
-| `DISCORD_LEAD_IDS` | _(kosong)_ | Discord user IDs lead engineer, pisah koma |
 
 ### Trigger Manual
-
-Workflow bisa dijalankan manual tanpa menunggu cron:
 
 1. Buka tab **Actions** di GitHub
 2. Pilih workflow **🐛 Jira Bug Reminder**
@@ -167,67 +199,82 @@ Workflow bisa dijalankan manual tanpa menunggu cron:
 
 ---
 
-## Contoh Notifikasi Discord
+## Cara Kerja
 
-**New Bug Alert**
-> 🆕 **[New Bug Alert] Ada bug baru — mohon segera ditindaklanjuti!**
-> 1 bug baru dengan status **To Do** ditemukan.
->
-> 🔴 **[LP-1250] Checkout gagal di iOS 17**
-> Status: To Do | Priority: Critical
-> Assignee: _Unassigned_ | Reporter: Siti Rahma
-> Dibuat: 06 May 2026 10:00 (2m yang lalu)
-> [🔗 Buka di Jira](https://yourcompany.atlassian.net/browse/LP-1250)
+```
+startup
+  ├── runBugAlerts()   ← langsung dijalankan
+  └── runSPCheck()     ← langsung dijalankan
+
+loop:
+  ├── setiap 15 menit → runBugAlerts()
+  │     ├── cek jam kerja WIB (08:00–18:00), skip jika di luar
+  │     ├── GetHangingBugs()        → SendHangingBugAlert()
+  │     └── GetHangingCodeReviews() → SendHangingCodeReviewAlert()
+  │
+  └── setiap 30 menit → runSPCheck()
+        ├── cek jam kerja WIB (08:00–18:00), skip jika di luar
+        ├── GetTasksByExpectedStartDate(today)
+        │     JQL: issuetype in (Sub-task, "Sub-task Engineer", Subtask, Task)
+        │           AND "Expected Start Date[Date]" = "YYYY/MM/DD"
+        │           AND assignee in (<25 engineer names>)
+        ├── categorizeEngineerSP()
+        │     → above  : totalSP >= dailyCapacity
+        │     → below  : totalSP < dailyCapacity
+        │     → noTasks: tidak ada task hari ini
+        └── SendSPCapacityAlert()
+              → 1 summary embed (total SP aktual, kapasitas, utilisasi)
+              → 1 embed per SPV (✅ sesuai · ⚠️ kurang · 🚫 belum ada task)
+```
 
 ---
 
-**Hanging Bug Alert (To Do) — MIDDLE**
+## Contoh Notifikasi Discord
+
+### Hanging Bug Alert — MIDDLE
+
+> `<@lead1> <@lead2>`
+>
 > ⚙️ **ORANGE ALERT — Bug Menunggu Fixing Engineer**
 > Bug dalam fase development telah mencapai batas **MIDDLE** 🟠
 >
 > 📌 **Epic**
-> [PROJ-100] Nama Epic
+> [PROJ-100] Nama Epic (8 bug)
 > https://yourcompany.atlassian.net/browse/PROJ-100
 >
-> 🦎 **Jumlah Bug (Dev Phase)** &nbsp;&nbsp;&nbsp;&nbsp; 📊 **Threshold**
-> **10** bug &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 🔴 High: 15 | 🟠 Mid: 10 | 🟡 Low: 6
+> 🦎 **Jumlah Bug (Dev Phase)** &nbsp; 📊 **Threshold**
+> **10** bug &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 🔴 High: 15 | 🟠 Mid: 10 | 🟡 Low: 6
 >
 > 👤 **Breakdown per Assignee**
 > **Andi**: 4 Bug | **Budi**: 3 Bug | **Citra**: 2 Bug | **Dian**: 1 Bug
 >
-> 🎯 **Triggered By**
-> [LP-1245] Push notification tidak terkirim
-> https://yourcompany.atlassian.net/browse/LP-1245
->
-> 📋 **Status yang Dihitung**
-> `Todo` | `In Progress` | `Code Review` | `Rejected` | `Reject`
->
-> _Jira Bug Monitor • Development Phase Alert_
+> _Eng Ngebug • Development Phase Alert_
 
 ---
 
-**Hanging Code Review Alert — HIGH**
-> ⚙️ **RED ALERT — Bug Menunggu Code Review Lead**
-> Bug dalam fase code review telah mencapai batas **HIGH** 🔴
+### SP Capacity Check
+
+> `<@lead1> <@lead2>`
 >
-> 📌 **Epic**
-> [PROJ-100] Nama Epic
-> https://yourcompany.atlassian.net/browse/PROJ-100
+> 📊 **SP Capacity Check — 2026-05-07**
+> Dari **25** engineer: ✅ **10** sesuai/melebihi target · ⚠️ **8** kurang · 🚫 **7** belum ada task.
 >
-> 🦎 **Jumlah Bug (Code Review Phase)** &nbsp;&nbsp;&nbsp;&nbsp; 📊 **Threshold**
-> **15** bug &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 🔴 High: 15 | 🟠 Mid: 10 | 🟡 Low: 6
+> 🎯 Total SP Harian (Aktual) &nbsp; 📦 Total Kapasitas SP (Max) &nbsp; 📉 Utilisasi
+> **87 SP** dari 42 task &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; **154 SP** dari 25 engineer &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; **56.5%**
 >
-> 👤 **Breakdown per Assignee**
-> **Budi**: 5 Bug | **Andi**: 4 Bug | **Citra**: 3 Bug | **Dian**: 2 Bug | **Eko**: 1 Bug
+> ---
 >
-> 🎯 **Triggered By**
-> [LP-1230] Payment timeout on checkout
-> https://yourcompany.atlassian.net/browse/LP-1230
+> 👤 **SPV: Falih Mulyana** 🔴
+> ✅ 1 sesuai · ⚠️ 2 kurang · 🚫 2 belum ada task
 >
-> 📋 **Status yang Dihitung**
-> `Code Review`
+> **Engineer**
+> ✅ **Bayu Kurniawan** — 6 / 6 SP (2 task)
+> ⚠️ **Fiqri Ramadhan** — 3 / 6 SP (1 task)
+> ⚠️ **Risyadul Alim** — 2 / 6 SP (1 task)
+> 🚫 **Muhamad Lutfi Alfiansyah** — belum ada task
+> 🚫 **Ridho Tanjung** — belum ada task
 >
-> _Jira Bug Monitor • Code Review Phase Alert_
+> _(dst. per SPV...)_
 
 ---
 
@@ -239,5 +286,4 @@ Workflow bisa dijalankan manual tanpa menunggu cron:
 | `123456789012345678,987654321098765432` | `<@123...> <@987...>` — multiple user |
 | `here` | `@here` — mention semua member online |
 | `everyone` | `@everyone` — mention semua member channel |
-
 
