@@ -19,6 +19,7 @@ type Config struct {
 	CodeReviewHangingMinutes int // minutes before a Code Review bug is considered hanging (default 10)
 	DiscordWebhookURL        string
 	DiscordLeadIDs           string // comma-separated Discord user IDs (numeric) e.g. "123456789012345678,987654321098765432"
+	DiscordSPAlertWebhookURL string // webhook for the SP capacity alert channel (optional)
 }
 
 // Load reads configuration from environment variables.
@@ -64,6 +65,7 @@ func Load() *Config {
 		CodeReviewHangingMinutes: crHangingMinutes,
 		DiscordWebhookURL:        os.Getenv("DISCORD_WEBHOOK_URL"),
 		DiscordLeadIDs:           os.Getenv("DISCORD_LEAD_IDS"),
+		DiscordSPAlertWebhookURL: os.Getenv("DISCORD_SP_ALERT_WEBHOOK_URL"),
 	}
 }
 

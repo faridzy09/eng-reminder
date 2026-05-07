@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/lionparcel/eng-reminder/internal/engineer"
 )
 
 // Issue represents a simplified Jira issue.
@@ -22,6 +25,24 @@ type Issue struct {
 	EpicKey     string
 	EpicSummary string
 	EpicURL     string
+}
+
+// EngineerTask is a simplified task used for daily SP capacity checking.
+type EngineerTask struct {
+	Key         string
+	Summary     string
+	Assignee    string
+	StoryPoints float64
+	URL         string
+}
+
+// EngineerSPSummary holds the daily SP totals for one engineer.
+type EngineerSPSummary struct {
+	EngineerName  string
+	DailyCapacity int
+	TotalSP       float64
+	TaskCount     int
+	Tasks         []EngineerTask
 }
 
 // Client is a minimal Jira REST API v3 client.
@@ -83,7 +104,7 @@ func (c *Client) searchIssues(jql string, maxResults int) ([]Issue, error) {
 	payload, err := json.Marshal(map[string]interface{}{
 		"jql":        jql,
 		"maxResults": maxResults,
-		"fields":     []string{"summary", "status", "priority", "assignee", "reporter", "created", "parent"},
+		"fields":     []string{"summary", "status", "priority", "assignee", "reporter", "created", "parent", "customfield_10195", "customfield_10196"},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -194,4 +215,89 @@ func HangingSeverity(count int) string {
 	default:
 		return "LOW"
 	}
+}
+
+// GetTasksByExpectedStartDate fetches all sub-tasks/tasks whose "Expected Start Date"
+// equals the given date (YYYY-MM-DD) and assignee is one of the registered engineers.
+// Story points are read from customfield_10016.
+func (c *Client) GetTasksByExpectedStartDate(date string) ([]EngineerTask, error) {
+	// build quoted assignee list from engineer registry
+	names := make([]string, 0, len(engineer.Team))
+	for _, eng := range engineer.Team {
+		names = append(names, fmt.Sprintf(`"%s"`, eng.Name))
+	}
+	assigneeList := strings.Join(names, ",")
+
+	// Jira JQL expects date as YYYY/MM/DD
+	jiraDate := strings.ReplaceAll(date, "-", "/")
+
+	jql := fmt.Sprintf(
+		`issuetype in (Sub-task,"Sub-task Engineer",Subtask,Task) AND "Expected Start Date[Date]" = "%s" AND assignee in (%s) ORDER BY assignee ASC`,
+		jiraDate, assigneeList,
+	)
+
+	endpoint := fmt.Sprintf("%s/rest/api/3/search/jql", c.baseURL)
+	payload, err := json.Marshal(map[string]interface{}{
+		"jql":        jql,
+		"maxResults": 200,
+		"fields":     []string{"summary", "assignee", "customfield_10016", "customfield_10195"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.SetBasicAuth(c.email, c.apiToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("jira API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Issues []struct {
+			Key    string `json:"key"`
+			Fields struct {
+				Summary  string `json:"summary"`
+				Assignee *struct {
+					DisplayName string `json:"displayName"`
+				} `json:"assignee"`
+				StoryPoints *float64 `json:"customfield_10016"`
+			} `json:"fields"`
+		} `json:"issues"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	tasks := make([]EngineerTask, 0, len(result.Issues))
+	for _, raw := range result.Issues {
+		assignee := "_Unassigned_"
+		if raw.Fields.Assignee != nil {
+			assignee = raw.Fields.Assignee.DisplayName
+		}
+		sp := 0.0
+		if raw.Fields.StoryPoints != nil {
+			sp = *raw.Fields.StoryPoints
+		}
+		tasks = append(tasks, EngineerTask{
+			Key:         raw.Key,
+			Summary:     raw.Fields.Summary,
+			Assignee:    assignee,
+			StoryPoints: sp,
+			URL:         fmt.Sprintf("%s/browse/%s", c.baseURL, raw.Key),
+		})
+	}
+	return tasks, nil
 }

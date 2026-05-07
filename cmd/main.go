@@ -6,11 +6,15 @@ import (
 	"time"
 
 	"github.com/lionparcel/eng-reminder/internal/config"
+	"github.com/lionparcel/eng-reminder/internal/engineer"
 	"github.com/lionparcel/eng-reminder/internal/jira"
 	"github.com/lionparcel/eng-reminder/internal/notifier"
 )
 
-const tickInterval = 15 * time.Minute
+const (
+	tickIntervalBug = 15 * time.Minute
+	tickIntervalSP  = 30 * time.Minute
+)
 
 func main() {
 	cfg := config.Load()
@@ -23,27 +27,42 @@ func main() {
 	discord := notifier.NewDiscord(cfg.DiscordWebhookURL)
 	mentionIDs := parseMentions(cfg.DiscordLeadIDs)
 
+	var discordSP *notifier.Discord
+	if cfg.DiscordSPAlertWebhookURL != "" {
+		discordSP = notifier.NewDiscord(cfg.DiscordSPAlertWebhookURL)
+	}
+
 	// Jalankan langsung saat pertama kali start
-	run(jiraClient, discord, mentionIDs, cfg)
+	runBugAlerts(jiraClient, discord, mentionIDs, cfg)
+	runSPCheck(jiraClient, discordSP, mentionIDs, cfg)
 
-	// Kemudian ulangi setiap 10 menit
-	ticker := time.NewTicker(tickInterval)
-	defer ticker.Stop()
+	// Bug alerts setiap 15 menit
+	bugTicker := time.NewTicker(tickIntervalBug)
+	defer bugTicker.Stop()
 
-	for range ticker.C {
-		run(jiraClient, discord, mentionIDs, cfg)
+	// SP capacity check setiap 30 menit
+	spTicker := time.NewTicker(tickIntervalSP)
+	defer spTicker.Stop()
+
+	for {
+		select {
+		case <-bugTicker.C:
+			runBugAlerts(jiraClient, discord, mentionIDs, cfg)
+		case <-spTicker.C:
+			runSPCheck(jiraClient, discordSP, mentionIDs, cfg)
+		}
 	}
 }
 
-func run(jiraClient *jira.Client, discord *notifier.Discord, mentionIDs []string, cfg *config.Config) {
-	log.Printf("[eng-reminder] ── run started at %s ──", time.Now().Format("2006-01-02 15:04:05"))
+func runBugAlerts(jiraClient *jira.Client, discord *notifier.Discord, mentionIDs []string, cfg *config.Config) {
+	log.Printf("[eng-reminder] ── bug alerts started at %s ──", time.Now().Format("2006-01-02 15:04:05"))
 
 	// ── Cek jam kerja WIB (UTC+7): hanya kirim notif pukul 08:00–18:00 ──
 	wib := time.FixedZone("WIB", 7*60*60)
 	nowWIB := time.Now().In(wib)
 	hour := nowWIB.Hour()
 	if hour < 8 || hour >= 18 {
-		log.Printf("[eng-reminder] outside working hours WIB (%02d:%02d), skipping notifications", hour, nowWIB.Minute())
+		log.Printf("[eng-reminder] outside working hours WIB (%02d:%02d), skipping bug alerts", hour, nowWIB.Minute())
 		return
 	}
 
@@ -77,7 +96,83 @@ func run(jiraClient *jira.Client, discord *notifier.Discord, mentionIDs []string
 		log.Println("[eng-reminder] no hanging code reviews found")
 	}
 
-	log.Println("[eng-reminder] ── run completed ──")
+	log.Println("[eng-reminder] ── bug alerts completed ──")
+}
+
+func runSPCheck(jiraClient *jira.Client, discordSP *notifier.Discord, mentionIDs []string, cfg *config.Config) {
+	if discordSP == nil {
+		return
+	}
+
+	log.Printf("[eng-reminder] ── SP check started at %s ──", time.Now().Format("2006-01-02 15:04:05"))
+
+	// ── Cek jam kerja WIB (UTC+7): hanya kirim notif pukul 08:00–18:00 ──
+	wib := time.FixedZone("WIB", 7*60*60)
+	nowWIB := time.Now().In(wib)
+	hour := nowWIB.Hour()
+	if hour < 8 || hour >= 18 {
+		log.Printf("[eng-reminder] outside working hours WIB (%02d:%02d), skipping SP check", hour, nowWIB.Minute())
+		return
+	}
+
+	today := nowWIB.Format("2006-01-02")
+	log.Printf("[eng-reminder] checking SP capacity for engineers on %s...", today)
+	tasks, err := jiraClient.GetTasksByExpectedStartDate(today)
+	if err != nil {
+		log.Printf("[eng-reminder] failed to fetch engineer tasks: %v", err)
+		return
+	}
+	above, below, noTasks := categorizeEngineerSP(tasks)
+	log.Printf("[eng-reminder] SP check: %d above/at target, %d below target, %d no tasks", len(above), len(below), len(noTasks))
+	if err := discordSP.SendSPCapacityAlert(today, above, below, noTasks, mentionIDs); err != nil {
+		log.Printf("[eng-reminder] failed to send SP capacity alert: %v", err)
+	}
+
+	log.Println("[eng-reminder] ── SP check completed ──")
+}
+
+// categorizeEngineerSP groups tasks by engineer and categorises each engineer
+// into above-capacity, below-capacity, or no-tasks buckets.
+func categorizeEngineerSP(tasks []jira.EngineerTask) (above, below []jira.EngineerSPSummary, noTasks []engineer.Engineer) {
+	// group tasks by Jira assignee displayName
+	tasksByAssignee := make(map[string][]jira.EngineerTask)
+	for _, t := range tasks {
+		tasksByAssignee[t.Assignee] = append(tasksByAssignee[t.Assignee], t)
+	}
+
+	for _, eng := range engineer.Team {
+		var engTasks []jira.EngineerTask
+		for assigneeName, taskList := range tasksByAssignee {
+			matched := engineer.FindByJiraDisplayName(assigneeName)
+			if matched != nil && matched.ID == eng.ID {
+				engTasks = taskList
+				break
+			}
+		}
+
+		if len(engTasks) == 0 {
+			noTasks = append(noTasks, eng)
+			continue
+		}
+
+		totalSP := 0.0
+		for _, t := range engTasks {
+			totalSP += t.StoryPoints
+		}
+		summary := jira.EngineerSPSummary{
+			EngineerName:  eng.Name,
+			DailyCapacity: eng.StoryPointsPerDay,
+			TotalSP:       totalSP,
+			TaskCount:     len(engTasks),
+			Tasks:         engTasks,
+		}
+		if totalSP >= float64(eng.StoryPointsPerDay) {
+			above = append(above, summary)
+		} else {
+			below = append(below, summary)
+		}
+	}
+	return
 }
 
 // parseMentions splits a comma-separated string of Discord user IDs.

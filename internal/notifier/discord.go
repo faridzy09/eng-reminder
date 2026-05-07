@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lionparcel/eng-reminder/internal/engineer"
 	"github.com/lionparcel/eng-reminder/internal/jira"
 )
 
@@ -454,4 +455,180 @@ func (d *Discord) SendHangingCodeReviewAlert(bugs []jira.Issue, severity string,
 		Content: buildMentionText(mentionIDs),
 		Embeds:  []discordEmbed{embed},
 	})
+}
+
+// SendSPCapacityAlert sends a daily SP capacity check notification to a dedicated channel.
+// Engineers are grouped by supervisor so each SPV's team status is clearly visible.
+// aboveCapacity = engineers at or above their daily SP target.
+// belowCapacity = engineers who have tasks but total SP is below their daily target.
+// noTasks       = engineers with no tasks scheduled for today (Expected Start Date is empty/unset).
+func (d *Discord) SendSPCapacityAlert(
+	date string,
+	aboveCapacity []jira.EngineerSPSummary,
+	belowCapacity []jira.EngineerSPSummary,
+	noTasks []engineer.Engineer,
+	mentionIDs []string,
+) error {
+	// build lookup maps keyed by engineer name
+	aboveMap := make(map[string]jira.EngineerSPSummary, len(aboveCapacity))
+	for _, e := range aboveCapacity {
+		aboveMap[e.EngineerName] = e
+	}
+	belowMap := make(map[string]jira.EngineerSPSummary, len(belowCapacity))
+	for _, e := range belowCapacity {
+		belowMap[e.EngineerName] = e
+	}
+	noTaskSet := make(map[string]bool, len(noTasks))
+	for _, e := range noTasks {
+		noTaskSet[e.Name] = true
+	}
+
+	// collect unique supervisor names in insertion order
+	spvOrder := []string{}
+	spvSeen := map[string]bool{}
+	for _, eng := range engineer.Team {
+		if !spvSeen[eng.Supervisor] {
+			spvOrder = append(spvOrder, eng.Supervisor)
+			spvSeen[eng.Supervisor] = true
+		}
+	}
+
+	totalEngineers := len(aboveCapacity) + len(belowCapacity) + len(noTasks)
+	needsAction := len(belowCapacity) + len(noTasks)
+	overallColor := colorGreen
+	if needsAction > totalEngineers/2 {
+		overallColor = colorRed
+	} else if needsAction > 0 {
+		overallColor = colorOrange
+	}
+
+	// hitung total SP aktual dan total kapasitas harian dari semua engineer
+	var totalActualSP float64
+	var totalCapacitySP int
+	for _, e := range aboveCapacity {
+		totalActualSP += e.TotalSP
+		totalCapacitySP += e.DailyCapacity
+	}
+	for _, e := range belowCapacity {
+		totalActualSP += e.TotalSP
+		totalCapacitySP += e.DailyCapacity
+	}
+	for _, eng := range engineer.Team {
+		if noTaskSet[eng.Name] {
+			totalCapacitySP += eng.StoryPointsPerDay
+		}
+	}
+	totalTaskCount := 0
+	for _, e := range aboveCapacity {
+		totalTaskCount += e.TaskCount
+	}
+	for _, e := range belowCapacity {
+		totalTaskCount += e.TaskCount
+	}
+
+	// summary embed
+	summaryEmbed := discordEmbed{
+		Title: fmt.Sprintf("📊 SP Capacity Check — %s", date),
+		Color: overallColor,
+		Description: fmt.Sprintf(
+			"Dari **%d** engineer: ✅ **%d** sesuai/melebihi target · ⚠️ **%d** kurang · 🚫 **%d** belum ada task.",
+			totalEngineers, len(aboveCapacity), len(belowCapacity), len(noTasks),
+		),
+		Fields: []discordEmbedField{
+			{
+				Name:   "🎯 Total SP Harian (Aktual)",
+				Value:  fmt.Sprintf("**%.0f SP** dari %d task", totalActualSP, totalTaskCount),
+				Inline: true,
+			},
+			{
+				Name:   "📦 Total Kapasitas SP (Max)",
+				Value:  fmt.Sprintf("**%d SP** dari %d engineer", totalCapacitySP, totalEngineers),
+				Inline: true,
+			},
+			{
+				Name: "📉 Utilisasi",
+				Value: fmt.Sprintf("**%.1f%%**", func() float64 {
+					if totalCapacitySP == 0 {
+						return 0
+					}
+					return totalActualSP / float64(totalCapacitySP) * 100
+				}()),
+				Inline: true,
+			},
+		},
+		Footer:    &discordEmbedFooter{Text: "Eng Reminder • Daily SP Capacity Check"},
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	embeds := []discordEmbed{summaryEmbed}
+
+	// one embed per supervisor
+	for _, spv := range spvOrder {
+		var aboveLines, belowLines, noTaskLines []string
+
+		for _, eng := range engineer.Team {
+			if eng.Supervisor != spv {
+				continue
+			}
+			if s, ok := aboveMap[eng.Name]; ok {
+				aboveLines = append(aboveLines, fmt.Sprintf("✅ **%s** — %.0f / %d SP (%d task)", s.EngineerName, s.TotalSP, s.DailyCapacity, s.TaskCount))
+			} else if s, ok := belowMap[eng.Name]; ok {
+				belowLines = append(belowLines, fmt.Sprintf("⚠️ **%s** — %.0f / %d SP (%d task)", s.EngineerName, s.TotalSP, s.DailyCapacity, s.TaskCount))
+			} else if noTaskSet[eng.Name] {
+				noTaskLines = append(noTaskLines, fmt.Sprintf("🚫 **%s** — belum ada task", eng.Name))
+			}
+		}
+
+		var sb strings.Builder
+		for _, l := range aboveLines {
+			sb.WriteString(l + "\n")
+		}
+		for _, l := range belowLines {
+			sb.WriteString(l + "\n")
+		}
+		for _, l := range noTaskLines {
+			sb.WriteString(l + "\n")
+		}
+		body := strings.TrimRight(sb.String(), "\n")
+		if body == "" {
+			body = "_–_"
+		}
+
+		spvColor := colorGreen
+		if len(belowLines)+len(noTaskLines) > len(aboveLines) {
+			spvColor = colorRed
+		} else if len(belowLines)+len(noTaskLines) > 0 {
+			spvColor = colorOrange
+		}
+
+		embeds = append(embeds, discordEmbed{
+			Title: fmt.Sprintf("👤 SPV: %s", spv),
+			Color: spvColor,
+			Description: fmt.Sprintf(
+				"✅ %d sesuai · ⚠️ %d kurang · 🚫 %d belum ada task",
+				len(aboveLines), len(belowLines), len(noTaskLines),
+			),
+			Fields: []discordEmbedField{
+				{Name: "Engineer", Value: truncate(body, 1024)},
+			},
+		})
+	}
+
+	// Discord allows max 10 embeds per request; split if needed
+	const maxEmbedsPerReq = 10
+	for i := 0; i < len(embeds); i += maxEmbedsPerReq {
+		end := i + maxEmbedsPerReq
+		if end > len(embeds) {
+			end = len(embeds)
+		}
+		// mention leads only on the first request
+		content := ""
+		if i == 0 {
+			content = buildMentionText(mentionIDs)
+		}
+		if err := d.send(discordPayload{Content: content, Embeds: embeds[i:end]}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
