@@ -74,7 +74,7 @@ func runBugAlerts(jiraClient *jira.Client, discord *notifier.Discord, mentionIDs
 	wib := time.FixedZone("WIB", 7*60*60)
 	nowWIB := time.Now().In(wib)
 	hour := nowWIB.Hour()
-	if hour < 8 || hour >= 18 {
+	if hour < 8 || hour >= 20 {
 		log.Printf("[eng-reminder] outside working hours WIB (%02d:%02d), skipping bug alerts", hour, nowWIB.Minute())
 		return
 	}
@@ -123,7 +123,7 @@ func runSPCheck(jiraClient *jira.Client, discordSP *notifier.Discord, mentionIDs
 	wib := time.FixedZone("WIB", 7*60*60)
 	nowWIB := time.Now().In(wib)
 	hour := nowWIB.Hour()
-	if hour < 8 || hour >= 18 {
+	if hour < 8 || hour >= 20 {
 		log.Printf("[eng-reminder] outside working hours WIB (%02d:%02d), skipping SP check", hour, nowWIB.Minute())
 		return
 	}
@@ -198,7 +198,7 @@ func runCodeReviewCheck(jiraClient *jira.Client, discordCR *notifier.Discord, me
 	wib := time.FixedZone("WIB", 7*60*60)
 	nowWIB := time.Now().In(wib)
 	hour := nowWIB.Hour()
-	if hour < 8 || hour >= 18 {
+	if hour < 8 || hour >= 20 {
 		log.Printf("[eng-reminder] outside working hours WIB (%02d:%02d), skipping code review task check", hour, nowWIB.Minute())
 		return
 	}
