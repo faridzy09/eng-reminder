@@ -354,6 +354,73 @@ func (d *Discord) SendNewBugAlert(bugs []jira.Issue, mentionIDs []string, jiraBa
 	})
 }
 
+// hangingEmoji returns a colored indicator based on how long a bug has been hanging.
+// > 2 jam   → 🔴 (danger)
+// > 1 jam   → 🟠 (warning)
+// < 1 jam   → 🟡 (caution)
+func hangingEmoji(d time.Duration) string {
+	switch {
+	case d > 2*time.Hour:
+		return "🔴"
+	case d > 1*time.Hour:
+		return "🟠"
+	default:
+		return "🟡"
+	}
+}
+
+// hangingWorstColor returns the embed color matching the longest-hanging bug.
+func hangingWorstColor(bugs []jira.Issue) int {
+	var worst time.Duration
+	for _, b := range bugs {
+		if b.Created.IsZero() {
+			continue
+		}
+		if dur := time.Since(b.Created); dur > worst {
+			worst = dur
+		}
+	}
+	switch {
+	case worst > 2*time.Hour:
+		return colorRed
+	case worst > 1*time.Hour:
+		return colorOrange
+	default:
+		return colorYellow
+	}
+}
+
+// buildHangingBugList builds a list of bug lines with hang duration & color indicator.
+// Honors Discord's 1024 char field-value limit.
+func buildHangingBugList(bugs []jira.Issue) string {
+	// sort by longest hanging first
+	sorted := make([]jira.Issue, len(bugs))
+	copy(sorted, bugs)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Created.Before(sorted[j].Created)
+	})
+
+	const maxLen = 1024
+	var sb strings.Builder
+	for i, bug := range sorted {
+		dur := time.Since(bug.Created)
+		emoji := hangingEmoji(dur)
+		line := fmt.Sprintf(
+			"%s [[%s]](%s) `%s` · %s · _%s_",
+			emoji, bug.Key, bug.URL, friendlyDuration(dur), bug.Assignee, truncate(bug.Summary, 60),
+		)
+		if i < len(sorted)-1 {
+			line += "\n"
+		}
+		if sb.Len()+len(line) > maxLen {
+			sb.WriteString(fmt.Sprintf("\n*...+%d bug lainnya*", len(sorted)-i))
+			break
+		}
+		sb.WriteString(line)
+	}
+	return sb.String()
+}
+
 // SendHangingBugAlert notifies leads when bugs are stuck in "To Do" too long.
 func (d *Discord) SendHangingBugAlert(bugs []jira.Issue, severity string, stuckMinutes int, mentionIDs []string, jiraBaseURL string) error {
 	sEmoji := severityEmoji(severity)
@@ -382,6 +449,14 @@ func (d *Discord) SendHangingBugAlert(bugs []jira.Issue, severity string, stuckM
 			Value: buildAssigneeBreakdown(bugs),
 		},
 		{
+			Name:  "⏱️ Daftar Bug Hanging (urut terlama)",
+			Value: buildHangingBugList(bugs),
+		},
+		{
+			Name:  "🎨 Indikator Hang Time",
+			Value: "🔴 > 2 jam (danger) · 🟠 > 1 jam (warning) · 🟡 < 1 jam",
+		},
+		{
 			Name:  "🎯 Triggered By",
 			Value: "Reminder Hanging Bug",
 		},
@@ -391,9 +466,11 @@ func (d *Discord) SendHangingBugAlert(bugs []jira.Issue, severity string, stuckM
 		},
 	}
 
+	// Warna embed mengikuti bug paling lama hanging (bukan severity jumlah).
+	embedColor := hangingWorstColor(bugs)
 	embed := discordEmbed{
 		Title:       fmt.Sprintf("⚙️ %s ALERT — Bug Menunggu Fixing Engineer", colorWord),
-		Color:       severityColor(severity),
+		Color:       embedColor,
 		Description: fmt.Sprintf("Bug dalam fase development berada pada range **%s** %s", severity, sEmoji),
 		Fields:      fields,
 		Footer:      &discordEmbedFooter{Text: "Eng Ngebug • Development Phase Alert"},

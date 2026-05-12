@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	tickIntervalBug        = 45 * time.Minute
+	tickIntervalBug        = 30 * time.Minute
 	tickIntervalSP         = 60 * time.Minute
 	tickIntervalCodeReview = 60 * time.Minute
 )
