@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	tickIntervalBug        = 15 * time.Minute
-	tickIntervalSP         = 30 * time.Minute
+	tickIntervalBug        = 45 * time.Minute
+	tickIntervalSP         = 60 * time.Minute
 	tickIntervalCodeReview = 60 * time.Minute
 )
 
@@ -43,11 +43,11 @@ func main() {
 	runSPCheck(jiraClient, discordSP, mentionIDs, cfg)
 	runCodeReviewCheck(jiraClient, discordCodeReview, mentionIDs)
 
-	// Bug alerts setiap 15 menit
+	// Bug alerts setiap 30 menit
 	bugTicker := time.NewTicker(tickIntervalBug)
 	defer bugTicker.Stop()
 
-	// SP capacity check setiap 30 menit
+	// SP capacity check setiap 60 menit
 	spTicker := time.NewTicker(tickIntervalSP)
 	defer spTicker.Stop()
 

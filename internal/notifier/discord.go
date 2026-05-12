@@ -394,7 +394,7 @@ func (d *Discord) SendHangingBugAlert(bugs []jira.Issue, severity string, stuckM
 	embed := discordEmbed{
 		Title:       fmt.Sprintf("⚙️ %s ALERT — Bug Menunggu Fixing Engineer", colorWord),
 		Color:       severityColor(severity),
-		Description: fmt.Sprintf("Bug dalam fase development telah mencapai batas **%s** %s", severity, sEmoji),
+		Description: fmt.Sprintf("Bug dalam fase development berada pada range **%s** %s", severity, sEmoji),
 		Fields:      fields,
 		Footer:      &discordEmbedFooter{Text: "Eng Ngebug • Development Phase Alert"},
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
@@ -446,7 +446,7 @@ func (d *Discord) SendHangingCodeReviewAlert(bugs []jira.Issue, severity string,
 	embed := discordEmbed{
 		Title:       fmt.Sprintf("⚙️ %s ALERT — Bug Menunggu Code Review Lead", colorWord),
 		Color:       severityColor(severity),
-		Description: fmt.Sprintf("Bug dalam fase code review telah mencapai batas **%s** %s", severity, sEmoji),
+		Description: fmt.Sprintf("Bug dalam fase code review berada pada range **%s** %s", severity, sEmoji),
 		Fields:      fields,
 		Footer:      &discordEmbedFooter{Text: "Eng Ngebug • Code Review Phase Alert"},
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
