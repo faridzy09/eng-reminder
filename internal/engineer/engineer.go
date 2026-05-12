@@ -38,6 +38,7 @@ var Team = []Engineer{
 	{ID: 23, Name: "Clara Anggraini", StoryPointsPerDay: 6, Supervisor: "Susi Cahyati"},
 	{ID: 24, Name: "Indra Ikwal", StoryPointsPerDay: 6, Supervisor: "DeriKurniawan"},
 	{ID: 25, Name: "Pratama Egho", StoryPointsPerDay: 6, Supervisor: "Faridho"},
+	{ID: 26, Name: "Faizal Bima", StoryPointsPerDay: 6, Supervisor: "Faridho"},
 }
 
 // FindByName returns an engineer by name (case-insensitive contains match).
