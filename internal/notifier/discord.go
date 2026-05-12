@@ -511,6 +511,14 @@ func (d *Discord) SendHangingCodeReviewAlert(bugs []jira.Issue, severity string,
 			Value: buildAssigneeBreakdown(bugs),
 		},
 		{
+			Name:  "⏱️ Daftar Bug Hanging (urut terlama)",
+			Value: buildHangingBugList(bugs),
+		},
+		{
+			Name:  "🎨 Indikator Hang Time",
+			Value: "🔴 > 2 jam (danger) · 🟠 > 1 jam (warning) · 🟡 < 1 jam",
+		},
+		{
 			Name:  "🎯 Triggered By",
 			Value: "Code Review Monitoring",
 		},
@@ -520,9 +528,11 @@ func (d *Discord) SendHangingCodeReviewAlert(bugs []jira.Issue, severity string,
 		},
 	}
 
+	// Warna embed mengikuti bug paling lama hanging (bukan severity jumlah).
+	embedColor := hangingWorstColor(bugs)
 	embed := discordEmbed{
 		Title:       fmt.Sprintf("⚙️ %s ALERT — Bug Menunggu Code Review Lead", colorWord),
-		Color:       severityColor(severity),
+		Color:       embedColor,
 		Description: fmt.Sprintf("Bug dalam fase code review berada pada range **%s** %s", severity, sEmoji),
 		Fields:      fields,
 		Footer:      &discordEmbedFooter{Text: "Eng Ngebug • Code Review Phase Alert"},
