@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lionparcel/eng-reminder/internal/engineer"
+	"github.com/lionparcel/eng-reminder/internal/holiday"
 	"github.com/lionparcel/eng-reminder/internal/jira"
 )
 
@@ -212,7 +213,7 @@ func buildBugFields(bugs []jira.Issue) []discordEmbedField {
 	fields := make([]discordEmbedField, 0, count)
 	for _, bug := range bugs[:count] {
 		emoji := priorityEmoji(bug.Priority)
-		stuck := time.Since(bug.Created).Round(time.Minute)
+		stuck := holiday.BusinessDuration(bug.Created, time.Now()).Round(time.Minute)
 		value := fmt.Sprintf(
 			"**Status:** %s | **Priority:** %s\n**Assignee:** %s | **Reporter:** %s\n**Dibuat:** %s (%s yang lalu)\n[🔗 Buka di Jira](%s)",
 			bug.Status, bug.Priority,
@@ -369,6 +370,21 @@ func hangingEmoji(d time.Duration) string {
 	}
 }
 
+// hangDuration returns how long a bug has been hanging, always measured in
+// working hours (09:00–18:00 WIB on non-holiday weekdays). It prefers the
+// precomputed BusinessHang when set, otherwise derives the working-hours age
+// from Created so callers never fall back to raw wall-clock time (which would
+// wrongly count overnight, weekend, and holiday hours).
+func hangDuration(b jira.Issue) time.Duration {
+	if b.BusinessHang > 0 {
+		return b.BusinessHang
+	}
+	if b.Created.IsZero() {
+		return 0
+	}
+	return holiday.BusinessDuration(b.Created, time.Now())
+}
+
 // hangingWorstColor returns the embed color matching the longest-hanging bug.
 func hangingWorstColor(bugs []jira.Issue) int {
 	var worst time.Duration
@@ -376,7 +392,7 @@ func hangingWorstColor(bugs []jira.Issue) int {
 		if b.Created.IsZero() {
 			continue
 		}
-		if dur := time.Since(b.Created); dur > worst {
+		if dur := hangDuration(b); dur > worst {
 			worst = dur
 		}
 	}
@@ -397,13 +413,13 @@ func buildHangingBugList(bugs []jira.Issue) string {
 	sorted := make([]jira.Issue, len(bugs))
 	copy(sorted, bugs)
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Created.Before(sorted[j].Created)
+		return hangDuration(sorted[i]) > hangDuration(sorted[j])
 	})
 
 	const maxLen = 1024
 	var sb strings.Builder
 	for i, bug := range sorted {
-		dur := time.Since(bug.Created)
+		dur := hangDuration(bug)
 		emoji := hangingEmoji(dur)
 		line := fmt.Sprintf(
 			"%s [[%s]](%s) `%s` · %s · _%s_",
@@ -414,6 +430,37 @@ func buildHangingBugList(bugs []jira.Issue) string {
 		}
 		if sb.Len()+len(line) > maxLen {
 			sb.WriteString(fmt.Sprintf("\n*...+%d bug lainnya*", len(sorted)-i))
+			break
+		}
+		sb.WriteString(line)
+	}
+	return sb.String()
+}
+
+// buildHangingTaskList builds a list of task lines with hang duration & color indicator.
+// Honors Discord's 1024 char field-value limit.
+func buildHangingTaskList(task []jira.Issue) string {
+	// sort by longest hanging first
+	sorted := make([]jira.Issue, len(task))
+	copy(sorted, task)
+	sort.Slice(sorted, func(i, j int) bool {
+		return hangDuration(sorted[i]) > hangDuration(sorted[j])
+	})
+
+	const maxLen = 1024
+	var sb strings.Builder
+	for i, task := range sorted {
+		dur := hangDuration(task)
+		emoji := hangingEmoji(dur)
+		line := fmt.Sprintf(
+			"%s [[%s]](%s) `%s` · %s · _%s_",
+			emoji, task.Key, task.URL, friendlyDuration(dur), task.Assignee, truncate(task.Summary, 60),
+		)
+		if i < len(sorted)-1 {
+			line += "\n"
+		}
+		if sb.Len()+len(line) > maxLen {
+			sb.WriteString(fmt.Sprintf("\n*...+%d task lainnya*", len(sorted)-i))
 			break
 		}
 		sb.WriteString(line)
@@ -804,9 +851,9 @@ func (d *Discord) SendCodeReviewTaskAlert(issues []jira.Issue, mentionIDs []stri
 				taskCount++
 				var durLabel string
 				if !t.CodeReviewSince.IsZero() {
-					durLabel = friendlyDuration(time.Since(t.CodeReviewSince)) + " di CR"
+					durLabel = friendlyDuration(holiday.BusinessDuration(t.CodeReviewSince, time.Now())) + " di CR"
 				} else {
-					durLabel = friendlyDuration(time.Since(t.Created)) + " sejak dibuat"
+					durLabel = friendlyDuration(holiday.BusinessDuration(t.Created, time.Now())) + " sejak dibuat"
 				}
 				lines = append(lines, fmt.Sprintf(
 					"🔸 **%s** · `%s` · _%s_\n　[[%s] %s](%s)",
@@ -841,4 +888,93 @@ func (d *Discord) SendCodeReviewTaskAlert(issues []jira.Issue, mentionIDs []stri
 		}
 	}
 	return nil
+}
+
+func (d *Discord) SendHangingBugAlertV2(bugs []jira.Issue, severity string, stuckMinutes int, mentionIDs []string, jiraBaseURL string) error {
+	sEmoji := severityEmoji(severity)
+	colorWord := severityColorWord(severity)
+
+	const threshLow, threshMid, threshHigh = 6, 10, 15
+
+	// Triggered By = bug paling baru (list sorted ASC, ambil terakhir)
+	fields := []discordEmbedField{
+		{
+			Name:   "🦎 Jumlah Bug (Dev Phase)",
+			Value:  fmt.Sprintf("**%d** bug", len(bugs)),
+			Inline: true,
+		},
+		{
+			Name:   "📊 Threshold",
+			Value:  fmt.Sprintf("🔴 High: %d | 🟠 Mid: %d | 🟡 Low: %d", threshHigh, threshMid, threshLow),
+			Inline: true,
+		},
+		{
+			Name:  "⏱️ Daftar Bug Hanging (urut terlama)",
+			Value: buildHangingBugList(bugs),
+		},
+		{
+			Name:  "🎨 Indikator Hang Time",
+			Value: "🔴 > 2 jam (danger) · 🟠 > 1 jam (warning) · 🟡 < 1 jam",
+		},
+	}
+
+	// Warna embed mengikuti bug paling lama hanging (bukan severity jumlah).
+	embedColor := hangingWorstColor(bugs)
+	embed := discordEmbed{
+		Title:       fmt.Sprintf("⚙️ %s ALERT — Menunggu Fixing Engineer", colorWord),
+		Color:       embedColor,
+		Description: fmt.Sprintf("Bug dalam fase development berada pada range **%s** %s", severity, sEmoji),
+		Fields:      fields,
+		Footer:      &discordEmbedFooter{Text: "EBS • Development Phase Alert"},
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+	}
+	return d.send(discordPayload{
+		Content: buildMentionText(mentionIDs),
+		Embeds:  []discordEmbed{embed},
+	})
+}
+
+func (d *Discord) SendHangingCodeReviewAlertV2(task []jira.Issue, severity string, stuckMinutes int, mentionIDs []string, jiraBaseURL string) error {
+	sEmoji := severityEmoji(severity)
+	colorWord := severityColorWord(severity)
+
+	const threshLow, threshMid, threshHigh = 6, 10, 15
+
+	// Triggered By = bug paling baru (list sorted ASC, ambil terakhir)
+
+	fields := []discordEmbedField{
+		{
+			Name:   "🦎 Jumlah Task (Code Review Phase)",
+			Value:  fmt.Sprintf("**%d** task", len(task)),
+			Inline: true,
+		},
+		{
+			Name:   "📊 Threshold",
+			Value:  fmt.Sprintf("🔴 High: %d | 🟠 Mid: %d | 🟡 Low: %d", threshHigh, threshMid, threshLow),
+			Inline: true,
+		},
+		{
+			Name:  "⏱️ Daftar Task Hanging (urut terlama)",
+			Value: buildHangingTaskList(task),
+		},
+		{
+			Name:  "🎨 Indikator Hang Time",
+			Value: "🔴 > 2 jam (danger) · 🟠 > 1 jam (warning) · 🟡 < 1 jam",
+		},
+	}
+
+	// Warna embed mengikuti task paling lama hanging (bukan severity jumlah).
+	embedColor := hangingWorstColor(task)
+	embed := discordEmbed{
+		Title:       fmt.Sprintf("⚙️ %s ALERT — Task Menunggu Code Review Lead", colorWord),
+		Color:       embedColor,
+		Description: fmt.Sprintf("Task dalam fase code review berada pada range **%s** %s", severity, sEmoji),
+		Fields:      fields,
+		Footer:      &discordEmbedFooter{Text: "EBS • Code Review Phase Alert"},
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+	}
+	return d.send(discordPayload{
+		Content: buildMentionText(mentionIDs),
+		Embeds:  []discordEmbed{embed},
+	})
 }

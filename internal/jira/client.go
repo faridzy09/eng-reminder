@@ -22,7 +22,8 @@ type Issue struct {
 	Assignee        string
 	Reporter        string
 	Created         time.Time
-	CodeReviewSince time.Time // zero if not yet in Code Review, or if changelog unavailable
+	CodeReviewSince time.Time     // zero if not yet in Code Review, or if changelog unavailable
+	BusinessHang    time.Duration // working-hours age (09:00–18:00 WIB); zero means "use wall-clock"
 	URL             string
 	EpicKey         string
 	EpicSummary     string
@@ -188,6 +189,324 @@ func (c *Client) GetHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
 	return c.searchIssues(jql, 100)
 }
 
+// FELeadSupervisor is the supervisor (PIC lead) whose engineers form the FE team.
+const FELeadSupervisor = "Faridho"
+
+// feAssigneeClause builds a quoted, comma-separated JQL assignee list from the FE
+// engineers registered under FELeadSupervisor in engineer.go. Returns ok=false
+// when no FE engineer is registered.
+func feAssigneeClause() (string, bool) {
+	names := engineer.NamesBySupervisor(FELeadSupervisor)
+	if len(names) == 0 {
+		return "", false
+	}
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, fmt.Sprintf(`"%s"`, n))
+	}
+	return strings.Join(quoted, ","), true
+}
+
+// GetFEHangingBugs fetches FE-team bugs stuck in "To Do" across the FE project
+// boards (GENESIS, CORB, WEBLP, CUST), assigned to an FE engineer.
+func (c *Client) GetFEHangingBugs(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := feAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	// Include the FE lead (Faridho) himself as an assignee, in addition to his engineers.
+	assignees += `,"Faridho"`
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND project in (Genesis,"Customer App Team","Corporare Business","Lion Parcel Web") AND status in ("Todo","To Do","Reject","Rejected") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`, assignees,
+	)
+	return c.searchIssues(jql, 100)
+}
+
+// GetFEHangingCodeReviews fetches FE-team bugs stuck in "Code Review" across the
+// FE project boards, assigned to an FE engineer.
+func (c *Client) GetFEHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := feAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	assignees += `,"Faridho"`
+	jql := fmt.Sprintf(
+		`project in (Genesis,"Customer App Team","Corporare Business","Lion Parcel Web") AND status in ("CODE REVIEW","Code Review") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`,
+		assignees,
+	)
+	issues, err := c.searchIssues(jql, 100)
+	if err != nil {
+		return nil, err
+	}
+	c.enrichCodeReviewSince(issues)
+	return issues, nil
+}
+
+// CorbLeadSupervisor is the supervisor (PIC lead) whose engineers form the CORB team.
+const CorbLeadSupervisor = "Sholahuddin Alisyahbana"
+
+// corbAssigneeClause builds a quoted, comma-separated JQL assignee list from the
+// CORB engineers registered under CorbLeadSupervisor in engineer.go. Returns
+// ok=false when no CORB engineer is registered.
+func corbAssigneeClause() (string, bool) {
+	names := engineer.NamesBySupervisor(CorbLeadSupervisor)
+	if len(names) == 0 {
+		return "", false
+	}
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, fmt.Sprintf(`"%s"`, n))
+	}
+	return strings.Join(quoted, ","), true
+}
+
+// GetCorbHangingBugs fetches CORB-team bugs stuck in "To Do" across the FE project
+// boards (GENESIS, CORB, WEBLP, CUST), assigned to a CORB engineer.
+func (c *Client) GetCorbHangingBugs(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := corbAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	// Include the CORB lead (Sholahuddin Alisyahbana) himself as an assignee, in addition to his engineers.
+	assignees += `,"Sholahuddin Alisyahbana"`
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND project in ("Corporare Business","Lion Parcel Web") AND status in ("Todo","To Do","Reject","Rejected") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`, assignees,
+	)
+	return c.searchIssues(jql, 100)
+}
+
+// GetCorbHangingCodeReviews fetches CORB-team bugs stuck in "Code Review" across
+// the FE project boards, assigned to a CORB engineer.
+func (c *Client) GetCorbHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := corbAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	assignees += `,"Sholahuddin Alisyahbana"`
+	jql := fmt.Sprintf(
+		`project in ("Corporare Business","Lion Parcel Web") AND status in ("CODE REVIEW","Code Review") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`,
+		assignees,
+	)
+	issues, err := c.searchIssues(jql, 100)
+	if err != nil {
+		return nil, err
+	}
+	c.enrichCodeReviewSince(issues)
+	return issues, nil
+}
+
+// GenesisLeadSupervisor is the supervisor (PIC lead) whose engineers form the Genesis team.
+const GenesisLeadSupervisor = "Irvan Resna Hadiyana"
+
+// genesisAssigneeClause builds a quoted, comma-separated JQL assignee list from the
+// Genesis engineers registered under GenesisLeadSupervisor in engineer.go. Returns
+// ok=false when no Genesis engineer is registered.
+func genesisAssigneeClause() (string, bool) {
+	names := engineer.NamesBySupervisor(GenesisLeadSupervisor)
+	if len(names) == 0 {
+		return "", false
+	}
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, fmt.Sprintf(`"%s"`, n))
+	}
+	return strings.Join(quoted, ","), true
+}
+
+// GetGenesisHangingBugs fetches Genesis-team bugs stuck in "To Do" on the Genesis
+// project board, assigned to a Genesis engineer.
+func (c *Client) GetGenesisHangingBugs(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := genesisAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	// Include the Genesis lead (Irvan Resna Hadiyana) himself as an assignee, in addition to his engineers.
+	assignees += `,"Irvan Resna Hadiyana"`
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND project = Genesis AND status in ("Todo","To Do","Reject","Rejected") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`, assignees,
+	)
+	return c.searchIssues(jql, 100)
+}
+
+// GetGenesisHangingCodeReviews fetches Genesis-team bugs stuck in "Code Review" on
+// the Genesis project board, assigned to a Genesis engineer.
+func (c *Client) GetGenesisHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := genesisAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	assignees += `,"Irvan Resna Hadiyana"`
+	jql := fmt.Sprintf(
+		`project = Genesis AND status in ("CODE REVIEW","Code Review") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`,
+		assignees,
+	)
+	issues, err := c.searchIssues(jql, 100)
+	if err != nil {
+		return nil, err
+	}
+	c.enrichCodeReviewSince(issues)
+	return issues, nil
+}
+
+// GenesisTwoLeadSupervisor is the supervisor (PIC lead) whose engineers form the GenesisTwo team.
+const GenesisTwoLeadSupervisor = "DeriKurniawan"
+
+// genesisTwoAssigneeClause builds a quoted, comma-separated JQL assignee list from the
+// GenesisTwo engineers registered under GenesisTwoLeadSupervisor in engineer.go. Returns
+// ok=false when no GenesisTwo engineer is registered.
+func genesisTwoAssigneeClause() (string, bool) {
+	names := engineer.NamesBySupervisor(GenesisTwoLeadSupervisor)
+	if len(names) == 0 {
+		return "", false
+	}
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, fmt.Sprintf(`"%s"`, n))
+	}
+	return strings.Join(quoted, ","), true
+}
+
+// GetGenesisTwoHangingBugs fetches GenesisTwo-team bugs stuck in "To Do" on the
+// GenesisTwo project board, assigned to a GenesisTwo engineer.
+func (c *Client) GetGenesisTwoHangingBugs(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := genesisTwoAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	// Include the GenesisTwo lead (DeriKurniawan) himself as an assignee, in addition to his engineers.
+	assignees += `,"DeriKurniawan"`
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND project = Genesis AND status in ("Todo","To Do","Reject","Rejected") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`, assignees,
+	)
+	return c.searchIssues(jql, 100)
+}
+
+// GetGenesisTwoHangingCodeReviews fetches GenesisTwo-team bugs stuck in "Code Review"
+// on the GenesisTwo project board, assigned to a GenesisTwo engineer.
+func (c *Client) GetGenesisTwoHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := genesisTwoAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	assignees += `,"DeriKurniawan"`
+	jql := fmt.Sprintf(
+		`project = Genesis AND status in ("CODE REVIEW","Code Review") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`,
+		assignees,
+	)
+	issues, err := c.searchIssues(jql, 100)
+	if err != nil {
+		return nil, err
+	}
+	c.enrichCodeReviewSince(issues)
+	return issues, nil
+}
+
+// GenesisThreeLeadSupervisor is the supervisor (PIC lead) whose engineers form the GenesisThree team.
+const GenesisThreeLeadSupervisor = "Susi Cahyati"
+
+// genesisThreeAssigneeClause builds a quoted, comma-separated JQL assignee list from the
+// GenesisThree engineers registered under GenesisThreeLeadSupervisor in engineer.go. Returns
+// ok=false when no GenesisThree engineer is registered.
+func genesisThreeAssigneeClause() (string, bool) {
+	names := engineer.NamesBySupervisor(GenesisThreeLeadSupervisor)
+	if len(names) == 0 {
+		return "", false
+	}
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, fmt.Sprintf(`"%s"`, n))
+	}
+	return strings.Join(quoted, ","), true
+}
+
+// GetGenesisThreeHangingBugs fetches GenesisThree-team bugs stuck in "To Do" on the
+// GenesisThree project board, assigned to a GenesisThree engineer.
+func (c *Client) GetGenesisThreeHangingBugs(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := genesisThreeAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	// Include the GenesisThree lead (Susi Cahyati) himself as an assignee, in addition to his engineers.
+	assignees += `,"Susi Cahyati"`
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND project = Genesis AND status in ("Todo","To Do","Reject","Rejected") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`, assignees,
+	)
+	return c.searchIssues(jql, 100)
+}
+
+// GetGenesisThreeHangingCodeReviews fetches GenesisThree-team bugs stuck in "Code Review"
+// on the GenesisThree project board, assigned to a GenesisThree engineer.
+func (c *Client) GetGenesisThreeHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := genesisThreeAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	assignees += `,"Susi Cahyati"`
+	jql := fmt.Sprintf(
+		`project = Genesis AND status in ("CODE REVIEW","Code Review") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`,
+		assignees,
+	)
+	issues, err := c.searchIssues(jql, 100)
+	if err != nil {
+		return nil, err
+	}
+	c.enrichCodeReviewSince(issues)
+	return issues, nil
+}
+
+// CustomerAppsLeadSupervisor is the supervisor (PIC lead) whose engineers form the CustomerApps team.
+const CustomerAppsLeadSupervisor = "Falih Mulyana"
+
+// customerAppsAssigneeClause builds a quoted, comma-separated JQL assignee list from the
+// CustomerApps engineers registered under CustomerAppsLeadSupervisor in engineer.go. Returns
+// ok=false when no CustomerApps engineer is registered.
+func customerAppsAssigneeClause() (string, bool) {
+	names := engineer.NamesBySupervisor(CustomerAppsLeadSupervisor)
+	if len(names) == 0 {
+		return "", false
+	}
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, fmt.Sprintf(`"%s"`, n))
+	}
+	return strings.Join(quoted, ","), true
+}
+
+// GetCustomerAppsHangingBugs fetches CustomerApps-team bugs stuck in "To Do" on the
+// CustomerApps project board, assigned to a CustomerApps engineer.
+func (c *Client) GetCustomerAppsHangingBugs(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := customerAppsAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	// Include the CustomerApps lead (Falih Mulyana) himself as an assignee, in addition to his engineers.
+	assignees += `,"Falih Mulyana"`
+	jql := fmt.Sprintf(
+		`issuetype = Bug AND project in ("Customer App Team") AND status in ("Todo","To Do","Reject","Rejected") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`, assignees,
+	)
+	return c.searchIssues(jql, 100)
+}
+
+// GetCustomerAppsHangingCodeReviews fetches CustomerApps-team bugs stuck in "Code Review"
+// on the CustomerApps project board, assigned to a CustomerApps engineer.
+func (c *Client) GetCustomerAppsHangingCodeReviews(stuckMinutes int) ([]Issue, error) {
+	assignees, ok := customerAppsAssigneeClause()
+	if !ok {
+		return nil, nil
+	}
+	assignees += `,"Falih Mulyana"`
+	jql := fmt.Sprintf(
+		`project in ("Customer App Team") AND status in ("CODE REVIEW","Code Review") AND assignee in (%s) AND created>="2026/05/04" ORDER BY created ASC`,
+		assignees,
+	)
+	issues, err := c.searchIssues(jql, 100)
+	if err != nil {
+		return nil, err
+	}
+	c.enrichCodeReviewSince(issues)
+	return issues, nil
+}
+
 // GetCodeReviewTasks fetches all sub-tasks/tasks that are in "Code Review" status,
 // created on or after 2026/05/04, and assigned to one of the registered engineers.
 // It also fetches each issue's changelog to determine when it transitioned to Code Review.
@@ -207,14 +526,23 @@ func (c *Client) GetCodeReviewTasks() ([]Issue, error) {
 		return nil, err
 	}
 
-	// Enrich each issue with the time it transitioned to Code Review
+	c.enrichCodeReviewSince(issues)
+	return issues, nil
+}
+
+// enrichCodeReviewSince fills in each issue's CodeReviewSince by reading its
+// changelog for the most recent transition into "Code Review". Issues whose
+// changelog is unavailable or lacks such a transition keep a zero CodeReviewSince,
+// so callers can fall back to Created. This must be applied to any issue list
+// that feeds a Code Review hang alert, otherwise the hang time is wrongly
+// measured from Created instead of from when the task entered Code Review.
+func (c *Client) enrichCodeReviewSince(issues []Issue) {
 	for i := range issues {
 		t, err := c.getCodeReviewTransitionTime(issues[i].Key)
 		if err == nil && !t.IsZero() {
 			issues[i].CodeReviewSince = t
 		}
 	}
-	return issues, nil
 }
 
 // getCodeReviewTransitionTime fetches the changelog of an issue and returns the most recent

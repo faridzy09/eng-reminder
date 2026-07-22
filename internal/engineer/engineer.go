@@ -41,6 +41,18 @@ var Team = []Engineer{
 	{ID: 26, Name: "Ridho Tanjung", StoryPointsPerDay: 6, Supervisor: "Falih Mulyana"},
 }
 
+// NamesBySupervisor returns the names of all engineers reporting to the given
+// supervisor. Used to build Jira assignee filters per lead (e.g. FE team).
+func NamesBySupervisor(supervisor string) []string {
+	names := []string{}
+	for i := range Team {
+		if Team[i].Supervisor == supervisor {
+			names = append(names, Team[i].Name)
+		}
+	}
+	return names
+}
+
 // FindByName returns an engineer by name (case-insensitive contains match).
 // Returns nil if not found.
 func FindByName(name string) *Engineer {
