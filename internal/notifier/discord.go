@@ -437,6 +437,41 @@ func buildHangingBugList(bugs []jira.Issue) string {
 	return sb.String()
 }
 
+// buildHangingBugListWithStatus is like buildHangingBugList but also shows the
+// bug's current (last) Jira status per line.
+func buildHangingBugListWithStatus(bugs []jira.Issue) string {
+	// sort by longest hanging first
+	sorted := make([]jira.Issue, len(bugs))
+	copy(sorted, bugs)
+	sort.Slice(sorted, func(i, j int) bool {
+		return hangDuration(sorted[i]) > hangDuration(sorted[j])
+	})
+
+	const maxLen = 1024
+	var sb strings.Builder
+	for i, bug := range sorted {
+		dur := hangDuration(bug)
+		emoji := hangingEmoji(dur)
+		status := bug.Status
+		if status == "" {
+			status = "-"
+		}
+		line := fmt.Sprintf(
+			"%s [[%s]](%s) `%s` · `%s` · %s · _%s_",
+			emoji, bug.Key, bug.URL, friendlyDuration(dur), status, bug.Assignee, truncate(bug.Summary, 60),
+		)
+		if i < len(sorted)-1 {
+			line += "\n"
+		}
+		if sb.Len()+len(line) > maxLen {
+			sb.WriteString(fmt.Sprintf("\n*...+%d bug lainnya*", len(sorted)-i))
+			break
+		}
+		sb.WriteString(line)
+	}
+	return sb.String()
+}
+
 // buildHangingTaskList builds a list of task lines with hang duration & color indicator.
 // Honors Discord's 1024 char field-value limit.
 func buildHangingTaskList(task []jira.Issue) string {
@@ -452,9 +487,13 @@ func buildHangingTaskList(task []jira.Issue) string {
 	for i, task := range sorted {
 		dur := hangDuration(task)
 		emoji := hangingEmoji(dur)
+		status := task.Status
+		if status == "" {
+			status = "-"
+		}
 		line := fmt.Sprintf(
-			"%s [[%s]](%s) `%s` · %s · _%s_",
-			emoji, task.Key, task.URL, friendlyDuration(dur), task.Assignee, truncate(task.Summary, 60),
+			"%s [[%s]](%s) `%s` · `%s` · %s · _%s_",
+			emoji, task.Key, task.URL, friendlyDuration(dur), status, task.Assignee, truncate(task.Summary, 60),
 		)
 		if i < len(sorted)-1 {
 			line += "\n"
@@ -910,7 +949,7 @@ func (d *Discord) SendHangingBugAlertV2(bugs []jira.Issue, severity string, stuc
 		},
 		{
 			Name:  "⏱️ Daftar Bug Hanging (urut terlama)",
-			Value: buildHangingBugList(bugs),
+			Value: buildHangingBugListWithStatus(bugs),
 		},
 		{
 			Name:  "🎨 Indikator Hang Time",
